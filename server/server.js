@@ -1,8 +1,9 @@
-// server.js
-import express from "express";
-import mongoose from "mongoose";
-import cors from "cors";
-import dotenv from "dotenv";
+import express from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import { createServer } from 'http';
+import { Server } from 'socket.io';
 
 dotenv.config();
 
@@ -14,21 +15,33 @@ app.use(cors());
 app.use(express.json());
 
 // MongoDB Connection
-mongoose
-  .connect("mongodb://localhost:27017")
-  .then(() => console.log("MongoDB connected"))
-  .catch((err) => console.error("MongoDB connection error:", err));
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => console.error('MongoDB connection error:', err));
 
-// Example route
-app.get("/api/test", (req, res) => {
-  res.send("API is working!");
+// HTTP Server and Socket.io setup
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+  cors: {
+    origin: "*", // Adjust this based on your client setup
+  },
 });
 
-app.get("/", (req, res) => {
-    res.send("Hello World!");
-})
+io.on("connection", (socket) => {
+  console.log(`User connected: ${socket.id}`);
 
-// Start server
-app.listen(PORT, () => {
+  // Example event listener
+  socket.on("message", (data) => {
+    console.log("Message received:", data);
+    io.emit("message", data); // Broadcast message to all connected clients
+  });
+
+  socket.on("disconnect", () => {
+    console.log("User disconnected:", socket.id);
+  });
+});
+
+// Start the server
+httpServer.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
