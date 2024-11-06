@@ -1,17 +1,35 @@
 import Room from "../model/room.js";
+import { ROOMNAME_SIZE } from "../config/config.js";
+
+// Helper function to generate a random 6-letter string
+const generateRoomName = () => {
+  const characters =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let roomName = "";
+  for (let i = 0; i < ROOMNAME_SIZE; i++) {
+    roomName += characters.charAt(
+      Math.floor(Math.random() * characters.length)
+    );
+  }
+  return roomName;
+};
 
 // make a room
 export const makeRoom = async (req, res) => {
-  const { roomName } = req.body;
-
-  if (!roomName) {
-    return res.status(400).json({ message: "Room name is required" });
-  }
-
   try {
+    let roomName;
+    let roomExists;
+
+    // Ensure unique room name
+    do {
+      roomName = generateRoomName();
+      roomExists = await Room.findOne({ roomName });
+    } while (roomExists);
+
     const room = new Room({ roomName });
     await room.save();
-    res.status(201).json(room);
+
+    res.status(201).json({ roomName });
   } catch (error) {
     res.status(500).json({ message: "Error creating room", error });
   }
