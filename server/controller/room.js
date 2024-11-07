@@ -37,12 +37,12 @@ export const makeRoom = async (req, res) => {
 
 // join a room
 export const joinRoom = async (req, res) => {
-  const { roomName, userId } = req.body;
+  const { roomName, userName } = req.body;
 
-  if (!roomName || !userId) {
+  if (!roomName || !userName) {
     return res
       .status(400)
-      .json({ message: "Room name and user ID are required" });
+      .json({ message: "Room name and user name are required" });
   }
 
   try {
@@ -53,8 +53,8 @@ export const joinRoom = async (req, res) => {
     }
 
     // Check if the user is already in the room
-    if (!room.participants.includes(userId)) {
-      room.participants.push(userId); // Add user to participants
+    if (!room.participants.includes(userName)) {
+      room.participants.push(userName); // Add user to participants
       await room.save();
     }
 

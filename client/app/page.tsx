@@ -2,13 +2,20 @@
 
 import { Check } from "lucide-react";
 import { useRouter } from "next/navigation";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { BACKEND_URL, JSON_HEADERS } from "../config/config.js";
+import { generateRandomName } from "../utils/utils.js";
 
 const Page = () => {
   const router = useRouter();
   const [showModal, setShowModal] = useState(false);
   const [roomId, setRoomId] = useState(""); // State to store the room ID input
+  const [playerName, setPlayerName] = useState("");
+
+  useEffect(() => {
+    const generatedUserName = generateRandomName();
+    setPlayerName(generatedUserName);
+  }, []);
 
   const createRoom = async () => {
     try {
@@ -37,7 +44,7 @@ const Page = () => {
         const response = await fetch(`${BACKEND_URL}api/rooms/join`, {
           method: "POST",
           headers: JSON_HEADERS,
-          body: JSON.stringify({ roomName: roomId, userId: "temporaryUserId" }), // Replace with your user ID logic
+          body: JSON.stringify({ roomName: roomId, userName: playerName }),
         });
 
         if (!response.ok) {
@@ -123,7 +130,11 @@ const Page = () => {
         </div>
         <input
           type="text"
-          placeholder=""
+          placeholder={playerName}
+          value={playerName}
+          onChange={(e) => {
+            setPlayerName(e.target.value);
+          }}
           className="rounded-full w-full py-2 px-1 border-black border-[1px]"
         />
       </div>
