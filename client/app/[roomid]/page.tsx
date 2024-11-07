@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Users, Send, Menu } from "lucide-react";
+import { Users, Send, Menu, Circle, ArrowBigUp, ArrowUp } from "lucide-react";
 
 export const GamePage: React.FC = () => {
   const params = useParams();
@@ -95,21 +95,21 @@ export const GamePage: React.FC = () => {
             </Card>
           </div>
 
-          <aside className="w-full md:w-80 flex flex-col gap-4">
-            <Card className="hidden md:block">
-              <CardHeader>
-                <CardTitle className="text-xl font-bold">Players</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <PlayerList players={players} />
-              </CardContent>
-            </Card>
+          <aside className="w-full md:w-96 flex flex-col gap-4">
             <Card className="hidden md:block flex-grow">
               <CardHeader>
                 <CardTitle className="text-xl font-bold">Chat</CardTitle>
               </CardHeader>
               <CardContent className="flex flex-col h-full">
                 <ChatArea messages={chatMessages} />
+              </CardContent>
+            </Card>
+            <Card className="hidden md:block">
+              <CardHeader>
+                <CardTitle className="text-xl font-bold">Players</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <PlayerList players={players} />
               </CardContent>
             </Card>
           </aside>
@@ -147,8 +147,8 @@ function ChatArea({
   messages: { id: number; player: string; message: string }[];
 }) {
   return (
-    <>
-      <ScrollArea className="flex-grow mb-4">
+    <div className="flex flex-col h-full">
+      <ScrollArea className=" overflow-y-auto mb-4">
         <div className="space-y-4">
           {messages.map((msg) => (
             <div key={msg.id} className="bg-muted p-2 rounded-lg">
@@ -159,12 +159,12 @@ function ChatArea({
         </div>
       </ScrollArea>
       <div className="flex gap-2">
-        <Input placeholder="Type a message..." />
-        <Button size="icon">
-          <Send className="h-4 w-4" />
-        </Button>
+        <Input placeholder="Type a message..." className="flex-grow" />
+        <button className="p-2 rounded-full bg-zinc-700 hover:bg-zinc-800 text-white">
+          <ArrowUp />
+        </button>
       </div>
-    </>
+    </div>
   );
 }
 
