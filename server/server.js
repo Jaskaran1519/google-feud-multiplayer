@@ -6,6 +6,7 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 
 import roomRoutes from "./routes/room.js";
+import "./utils/utils.js";
 
 dotenv.config();
 

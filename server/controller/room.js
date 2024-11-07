@@ -52,7 +52,7 @@ export const joinRoom = async (req, res) => {
       return res.status(404).json({ message: "Room not found" });
     }
 
-    // Check if user is already in the room
+    // Check if the user is already in the room
     if (!room.participants.includes(userId)) {
       room.participants.push(userId); // Add user to participants
       await room.save();

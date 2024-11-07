@@ -30,11 +30,30 @@ const Page = () => {
     }
   };
 
-  const handleJoinRoom = (event:any) => {
+  const handleJoinRoom = async (event: any) => {
     event.preventDefault();
     if (roomId) {
-      router.push(`/${roomId}`);
-      setShowModal(false); // Close modal after joining
+      try {
+        const response = await fetch(`${BACKEND_URL}api/rooms/join`, {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: JSON.stringify({ roomName: roomId, userId: "temporaryUserId" }), // Replace with your user ID logic
+        });
+
+        if (!response.ok) {
+          throw new Error("Failed to join the room");
+        }
+
+        const data = await response.json();
+        console.log("Joined room:", data);
+
+        // Navigate to the room page
+        router.push(`/${roomId}`);
+        setShowModal(false); // Close modal after joining
+      } catch (error: any) {
+        console.error("Error joining room:", error);
+        alert("Error joining room: " + error.message);
+      }
     } else {
       alert("Please enter a valid Room ID");
     }
@@ -94,7 +113,7 @@ const Page = () => {
           </div>
         </div>
       )}
-      
+
       <div className="w-fit mx-auto mt-16 flex flex-col gap-5">
         <div className="flex items-center gap-5 px-2">
           <h1 className="text-xl md:text-2xl font-semibold">Player's name</h1>
