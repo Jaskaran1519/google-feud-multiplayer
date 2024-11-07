@@ -17,7 +17,9 @@ const page = () => {
           JOIN ROOM
         </button>
       </div>
-      <div className="w-fit mx-auto mt-16 flex flex-col gap-5">
+      <div
+        className="w-fit mx-auto mt-16 flex flex-col gap-5"
+      >
         <div className="flex items-center gap-5 px-2">
           <h1 className="text-xl md:text-2xl font-semibold">Player's name</h1>
           <button className="bg-zinc-600 hover:bg-zinc-800 text-white p-1 rounded-full">

@@ -7,7 +7,7 @@ interface RoomPageProps {
 }
 
 const RoomPage: React.FC<RoomPageProps> = ({ params }) => {
-  const { roomid } = params;
+  const { roomid  } = params;
 
   return (
     <div>
