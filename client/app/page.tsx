@@ -2,11 +2,13 @@
 
 import { Check } from "lucide-react";
 import { useRouter } from "next/navigation";
-import React from "react";
+import React, { useState } from "react";
 import { BACKEND_URL, JSON_HEADERS } from "../config/config.js";
 
 const Page = () => {
   const router = useRouter();
+  const [showModal, setShowModal] = useState(false);
+  const [roomId, setRoomId] = useState(""); // State to store the room ID input
 
   const createRoom = async () => {
     try {
@@ -22,15 +24,24 @@ const Page = () => {
       const data = await response.json();
       const { roomName } = data;
 
-      // Navigate to the room page
       router.push(`/${roomName}`);
     } catch (error) {
       console.error("Error creating room:", error);
     }
   };
 
+  const handleJoinRoom = (event:any) => {
+    event.preventDefault();
+    if (roomId) {
+      router.push(`/${roomId}`);
+      setShowModal(false); // Close modal after joining
+    } else {
+      alert("Please enter a valid Room ID");
+    }
+  };
+
   return (
-    <div className="w-[90%] mx-auto max-w-[1600px] min-h-screen ">
+    <div className="w-[90%] mx-auto max-w-[1600px] min-h-screen">
       <div className="max-w-[700px] mx-auto mt-16 mb-10 text-center">
         <h1 className="text-3xl md:text-4xl lg:text-6xl xl:text-8xl font-bold">
           Googussy
@@ -43,10 +54,47 @@ const Page = () => {
         >
           CREATE ROOM
         </button>
-        <button className="text-2xl font-semibold border-[1px] border-black px-5 py-2 hover:bg-zinc-900 hover:text-white duration-300">
+        <button
+          onClick={() => setShowModal(true)}
+          className="text-2xl font-semibold border-[1px] border-black px-5 py-2 hover:bg-zinc-900 hover:text-white duration-300"
+        >
           JOIN ROOM
         </button>
       </div>
+
+      {showModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center">
+          <div className="bg-white p-5 rounded-lg shadow-lg w-[90%] max-w-md">
+            <h2 className="text-2xl font-bold mb-4">Join a Room</h2>
+            <form onSubmit={handleJoinRoom}>
+              <input
+                type="text"
+                value={roomId}
+                onChange={(e) => setRoomId(e.target.value)}
+                placeholder="Enter Room ID"
+                className="rounded-full w-full py-2 px-4 border border-black mb-4"
+                required
+              />
+              <div className="flex justify-end space-x-3">
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="px-4 py-2 border border-black rounded-lg hover:bg-gray-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800"
+                >
+                  Join
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+      
       <div className="w-fit mx-auto mt-16 flex flex-col gap-5">
         <div className="flex items-center gap-5 px-2">
           <h1 className="text-xl md:text-2xl font-semibold">Player's name</h1>
