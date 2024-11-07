@@ -22,6 +22,7 @@ const Page = () => {
       const response = await fetch(`${BACKEND_URL}api/rooms/create`, {
         method: "POST",
         headers: JSON_HEADERS,
+        body: JSON.stringify({ userName: playerName }),
       });
 
       if (!response.ok) {

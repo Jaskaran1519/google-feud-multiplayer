@@ -16,6 +16,14 @@ const generateRoomName = () => {
 
 // make a room
 export const makeRoom = async (req, res) => {
+  const { userName } = req.body;
+
+  if (!userName) {
+    return res
+      .status(400)
+      .json({ message: "User name is required to create a room" });
+  }
+
   try {
     let roomName;
     let roomExists;
@@ -26,7 +34,7 @@ export const makeRoom = async (req, res) => {
       roomExists = await Room.findOne({ roomName });
     } while (roomExists);
 
-    const room = new Room({ roomName });
+    const room = new Room({ roomName, participants: [userName] }); // Add userName to participants
     await room.save();
 
     res.status(201).json({ roomName });
