@@ -1,13 +1,21 @@
+export interface Message {
+  player: string;
+  content: string;
+  timestamp: Date;
+}
+
 export interface GameState {
-    currentWord?: string;
-    scores?: Record<string, number>;
-    players?: string[];
-    round?: number;
-    status?: string;
-  }
-  
-  export interface ChatMessage {
-    userId: string;
-    message: string;
-    timestamp: Date;
-  }
+  isActive: boolean;
+  round: number;
+  totalRounds: number;
+  currentQuestion?: {
+    question: string;
+    suggestions: string[];
+  };
+  scores: Record<string, number>;
+}
+
+export interface PlayerStats {
+  lives: number;
+  score: number;
+}

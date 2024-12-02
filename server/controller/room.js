@@ -42,7 +42,6 @@ export const makeRoom = async (req, res) => {
     res.status(500).json({ message: "Error creating room", error });
   }
 };
-
 // join a room
 export const joinRoom = async (req, res) => {
   const { roomName, userName } = req.body;
@@ -69,5 +68,27 @@ export const joinRoom = async (req, res) => {
     res.status(200).json({ message: "Joined room successfully", room });
   } catch (error) {
     res.status(500).json({ message: "Error joining room", error });
+  }
+};
+
+export const getPlayersInRoom = async (req, res) => {
+  const { roomName } = req.params;
+
+  if (!roomName) {
+    return res
+      .status(400)
+      .json({ message: "Room name is required to get players" });
+  }
+
+  try {
+    const room = await Room.findOne({ roomName });
+
+    if (!room) {
+      return res.status(404).json({ message: "Room not found" });
+    }
+
+    res.status(200).json({ players: room.participants });
+  } catch (error) {
+    res.status(500).json({ message: "Error getting players in room", error });
   }
 };

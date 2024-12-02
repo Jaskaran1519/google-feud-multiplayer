@@ -1,171 +1,257 @@
 "use client";
-
-import { useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { Users, Send, Menu, Circle, ArrowBigUp, ArrowUp } from "lucide-react";
+import {
+  Sheet,
+  SheetContent,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
+import { Menu } from "lucide-react";
+import ChatArea from "./_components/ChatArea";
+import PlayerList from "./_components/PlayerList";
+import { io, Socket } from "socket.io-client";
+import { GameArea } from "./_components/GameArea";
+import { Message, GameState, PlayerStats } from "@/types/game";
+import { Pacifico } from "next/font/google";
+
+const herofont = Pacifico({
+  subsets: ["latin"],
+  weight: ["400"],
+});
 
 export const GamePage: React.FC = () => {
   const params = useParams();
-  const roomid = params.roomid; // Access roomid from the params
-
+  const roomid = params.roomid as string;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<Message[]>([]);
+  const [message, setMessage] = useState("");
+  const [player, setPlayer] = useState<
+    { id: number; name: string; score: number }[]
+  >([]);
+  const [username, setUsername] = useState<string>("");
+  const [gameState, setGameState] = useState<GameState>({
+    isActive: false,
+    round: 0,
+    totalRounds: 5,
+    currentQuestion: undefined,
+    scores: {},
+  });
+  const [playerStats, setPlayerStats] = useState<PlayerStats>({
+    lives: 3,
+    score: 0,
+  });
 
-  // Mock data
-  const question = "What are the most popular pizza toppings?";
-  const options = [
-    "Pepperoni",
-    "Cheese",
-    "Mushrooms",
-    "Onions",
-    "Sausage",
-    "Bacon",
-    "Black olives",
-    "Green peppers",
-    "Pineapple",
-    "Spinach",
-  ];
-  const players = [
-    { id: 1, name: "Player 1", score: 1000 },
-    { id: 2, name: "Player 2", score: 850 },
-    { id: 3, name: "Player 3", score: 720 },
-    { id: 4, name: "Player 4", score: 500 },
-  ];
-  const chatMessages = [
-    { id: 1, player: "Player 1", message: "Good luck everyone!" },
-    { id: 2, player: "Player 2", message: "This is fun!" },
-    { id: 3, player: "Player 3", message: "I'm going to win this!" },
-  ];
+  const socketRef = useRef<Socket | null>(null);
+
+  useEffect(() => {
+    const storedUsername = localStorage.getItem("playerName");
+    if (storedUsername) {
+      setUsername(storedUsername);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Create socket connection
+    socketRef.current = io(
+      process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5000/"
+    );
+    const socket = socketRef.current;
+
+    const currentUsername = localStorage.getItem("playerName");
+    if (!currentUsername) {
+      console.error("No username found!");
+      return;
+    }
+
+    // Debug logging for all socket events
+    const debugEvents = [
+      "initialRoomSync",
+      "message",
+      "updatePlayers",
+      "gameStateUpdate",
+      "playerStatsUpdate",
+      "newQuestion",
+      "gameOver",
+      "gameError",
+    ];
+
+    debugEvents.forEach((event) => {
+      socket.on(event, (data) => {
+        console.log(`Received ${event} event:`, data);
+      });
+    });
+
+    socket.on(
+      "initialRoomSync",
+      (data: { messages: Message[]; gameState: any; players: string[] }) => {
+        console.log("Initial Room Sync Data:", data);
+
+        // Sync game state
+        if (data.gameState) {
+          setGameState((prevState) => ({
+            ...prevState,
+            isActive: data.gameState.isActive || false,
+            round: data.gameState.round || 0,
+            totalRounds: data.gameState.totalRounds || 5,
+            currentQuestion: data.gameState.currentQuestion,
+            scores: data.gameState.scores || {},
+          }));
+
+          // Update player stats
+          const playerStatesArray = Array.isArray(data.gameState.playerStates)
+            ? data.gameState.playerStates
+            : Object.entries(data.gameState.playerStates || {});
+
+          const playerState = playerStatesArray.find(
+            ([name]: [string, any]) => name === currentUsername
+          );
+
+          if (playerState) {
+            setPlayerStats({
+              lives: playerState[1].lives || 3,
+              score: playerState[1].score || 0,
+            });
+          }
+        }
+      }
+    );
+
+    // Other socket event listeners (unchanged)
+    socket.on("message", (data: Message) => {
+      setChatMessages((prev) => [
+        ...prev,
+        {
+          player: data.player,
+          content: data.content,
+          timestamp: new Date(data.timestamp),
+        },
+      ]);
+    });
+
+    socket.on("updatePlayers", (updatedPlayers: string[]) => {
+      setPlayer(
+        updatedPlayers.map((name, index) => ({ id: index, name, score: 0 }))
+      );
+    });
+
+    socket.on("gameStateUpdate", (updatedGameState: any) => {
+      console.log("Game State Update Received:", updatedGameState);
+      setGameState((prevState) => ({
+        ...prevState,
+        ...updatedGameState,
+      }));
+    });
+
+    socket.on("newQuestion", (questionData: any) => {
+      console.log("New Question Received:", questionData);
+      setGameState((prevState) => ({
+        ...prevState,
+        ...questionData,
+        isActive: true,
+      }));
+    });
+
+    socket.on("playerStatsUpdate", (statsUpdate: any) => {
+      if (currentUsername && statsUpdate[currentUsername]) {
+        setPlayerStats((prev) => ({
+          lives: statsUpdate[currentUsername].lives,
+          score: statsUpdate[currentUsername].score,
+        }));
+      }
+    });
+
+    // Join room
+    socket.emit("joinRoom", {
+      roomName: roomid,
+      username: currentUsername,
+    });
+
+    return () => {
+      socket.off("initialRoomSync");
+      socket.off("message");
+      socket.off("updatePlayers");
+      socket.off("gameStateUpdate");
+      socket.off("playerStatsUpdate");
+      socket.off("newQuestion");
+      socket.emit("leaveRoom", roomid);
+      socket.disconnect();
+    };
+  }, [roomid]);
+
+  const sendMessage = () => {
+    const currentUsername = localStorage.getItem("playerName");
+    if (message.trim() && currentUsername) {
+      socketRef.current?.emit("message", {
+        roomName: roomid,
+        username: currentUsername,
+        message: message.trim(),
+      });
+      setMessage("");
+    }
+  };
 
   return (
     <div className="w-[90%] max-w-[1600px] mx-auto min-h-screen">
-      <div className="flex flex-col">
-        <header className="bg-white/10 backdrop-blur-md p-4 text-black">
-          <div className="container mx-auto flex justify-between items-center">
-            <h1 className="text-2xl font-bold">Googussy</h1>
-            <div className="flex items-center space-x-4">
-              <span className="text-sm">Room ID: {roomid}</span>
-              <Sheet open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
-                <SheetTrigger asChild>
-                  <Button variant="outline" size="icon" className="md:hidden">
-                    <Menu className="h-4 w-4" />
-                  </Button>
-                </SheetTrigger>
-                <SheetContent side="right" className="w-[300px] sm:w-[400px]">
-                  <PlayerList players={players} />
-                </SheetContent>
-              </Sheet>
-            </div>
-          </div>
-        </header>
+      <header className=" backdrop-blur-md p-4 text-black">
+        <div className="container mx-auto flex justify-between items-center">
+          <h1
+            className={` ${herofont.className} text-3xl font-bold text-white`}
+          >
+            Googussy
+          </h1>
+          <span className="text-md text-gray-200 hidden md:flex ">
+            <span className="font-semibold text-lg text-white"> Room ID: </span>{" "}
+            {roomid}
+          </span>
+          <Sheet open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
+            <SheetTrigger asChild>
+              <Button size="icon" className="md:hidden">
+                <Menu className="h-4 w-4" />
+              </Button>
+            </SheetTrigger>
 
-        <main className="flex-grow container mx-auto p-4 flex flex-col md:flex-row gap-4 overflow-hidden">
-          <div className="flex-grow flex flex-col gap-4">
-            <Card className="flex-grow">
-              <CardHeader>
-                <CardTitle className="text-2xl font-bold text-center">
-                  {question}
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {options.map((option, index) => (
-                    <Button
-                      key={index}
-                      variant="outline"
-                      className="h-12 text-left justify-start"
-                    >
-                      {index + 1}. {option}
-                    </Button>
-                  ))}
-                </div>
-              </CardContent>
-            </Card>
-            <Card className="md:hidden">
-              <CardHeader>
-                <CardTitle className="text-xl font-bold">Chat</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <ChatArea messages={chatMessages} />
-              </CardContent>
-            </Card>
-          </div>
+            <SheetTitle className="hidden">hello</SheetTitle>
+            <SheetContent side="right" className="w-[300px] sm:w-[400px] bg-zinc-900 text-white">
+              <span className="text-md text-gray-200 ">
+                <span className="font-semibold text-lg text-white">
+                  {" "}
+                  Room ID:{" "}
+                </span>{" "}
+                {roomid}
+              </span>
+              <h2 className="visually-hidden mt-12 mb-5 text-white font-semibold text-lg">Player List</h2>
+              <PlayerList player={player} />
+            </SheetContent>
+          </Sheet>
+        </div>
+      </header>
 
-          <aside className="w-full md:w-96 flex flex-col gap-4">
-            <Card className="hidden md:block flex-grow">
-              <CardHeader>
-                <CardTitle className="text-xl font-bold">Chat</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col h-full">
-                <ChatArea messages={chatMessages} />
-              </CardContent>
-            </Card>
-            <Card className="hidden md:block">
-              <CardHeader>
-                <CardTitle className="text-xl font-bold">Players</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <PlayerList players={players} />
-              </CardContent>
-            </Card>
-          </aside>
-        </main>
-      </div>
+      <main className="container mx-auto p-4 flex flex-col lg:flex-row gap-4">
+        <div className="flex-grow lg:w-2/3">
+          <GameArea
+            socket={socketRef.current || undefined}
+            roomId={roomid}
+            gameState={gameState}
+            playerStats={playerStats}
+          />
+        </div>
+
+        <div className=" flex flex-col gap-4">
+          <ChatArea
+            messages={chatMessages}
+            message={message}
+            setMessage={setMessage}
+            sendMessage={sendMessage}
+          />
+          <div className="hidden lg:block">
+            <PlayerList player={player} />
+          </div>
+        </div>
+      </main>
     </div>
   );
 };
-
-function PlayerList({
-  players,
-}: {
-  players: { id: number; name: string; score: number }[];
-}) {
-  return (
-    <ScrollArea className="h-[200px]">
-      <div className="space-y-2">
-        {players.map((player) => (
-          <div key={player.id} className="flex justify-between items-center">
-            <div className="flex items-center space-x-2">
-              <Users className="h-4 w-4" />
-              <span>{player.name}</span>
-            </div>
-            <span className="text-sm font-semibold">{player.score}</span>
-          </div>
-        ))}
-      </div>
-    </ScrollArea>
-  );
-}
-
-function ChatArea({
-  messages,
-}: {
-  messages: { id: number; player: string; message: string }[];
-}) {
-  return (
-    <div className="flex flex-col h-full">
-      <ScrollArea className=" overflow-y-auto mb-4">
-        <div className="space-y-4">
-          {messages.map((msg) => (
-            <div key={msg.id} className="bg-muted p-2 rounded-lg">
-              <p className="font-semibold">{msg.player}</p>
-              <p>{msg.message}</p>
-            </div>
-          ))}
-        </div>
-      </ScrollArea>
-      <div className="flex gap-2">
-        <Input placeholder="Type a message..." className="flex-grow" />
-        <button className="p-2 rounded-full bg-zinc-700 hover:bg-zinc-800 text-white">
-          <ArrowUp />
-        </button>
-      </div>
-    </div>
-  );
-}
 
 export default GamePage;

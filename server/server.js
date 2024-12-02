@@ -6,7 +6,9 @@ import { createServer } from "http";
 import { Server } from "socket.io";
 
 import roomRoutes from "./routes/room.js";
-import "./utils/utils.js";
+import messageRoutes from "./routes/message.js";
+import { connectDatabase } from "./config/database.js";
+import { initSocketHandlers } from "./lib/socketHandler.js";
 
 dotenv.config();
 
@@ -17,47 +19,25 @@ const PORT = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-// MongoDB Connection
-mongoose
-  .connect(process.env.MONGO_URI)
-  .then(() => console.log("MongoDB connected"))
-  .catch((err) => console.error("MongoDB connection error:", err));
-
 // Routes
 app.use("/api/rooms", roomRoutes);
+app.use("/api/messages", messageRoutes);
 
-// HTTP Server and Socket.io setup
+// Create HTTP and Socket servers
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: "*", // Adjust this based on your client setup
+    origin: "*",
   },
 });
 
-io.on("connection", (socket) => {
-  console.log(`User connected: ${socket.id}`);
+// Database connection
+connectDatabase();
 
-  // Create or join a room
-  socket.on("joinRoom", (roomName) => {
-    socket.join(roomName);
-    console.log(`User ${socket.id} joined room: ${roomName}`);
-
-    // Notify others in the room
-    socket.to(roomName).emit("userJoined", `${socket.id} has joined the room.`);
-  });
-
-  // Message handling in a specific room
-  socket.on("message", (data) => {
-    const { roomName, message } = data;
-    io.to(roomName).emit("message", message);
-  });
-
-  socket.on("disconnect", () => {
-    console.log("User disconnected:", socket.id);
-  });
-});
+// Initialize socket handlers
+initSocketHandlers(io);
 
 // Start the server
 httpServer.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+  console.log(`Server is running on port ${PORT}`);
 });
