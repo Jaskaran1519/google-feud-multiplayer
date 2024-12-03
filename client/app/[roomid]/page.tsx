@@ -201,7 +201,8 @@ export const GamePage: React.FC = () => {
           >
             Googussy
           </h1>
-          <span className="text-md text-gray-200 hidden md:flex ">
+          <span className="text-md text-gray-200 hidden md:flex
+           ">
             <span className="font-semibold text-lg text-white"> Room ID: </span>{" "}
             {roomid}
           </span>
