@@ -16,12 +16,14 @@ import { GameArea } from "./_components/GameArea";
 import { Message, GameState, PlayerStats } from "@/types/game";
 import { Pacifico } from "next/font/google";
 
+export const runtime = "edge";
+
 const herofont = Pacifico({
   subsets: ["latin"],
   weight: ["400"],
 });
 
-export default function Page(){
+export default function Page() {
   const params = useParams();
   const roomid = params.roomid as string;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -254,5 +256,4 @@ export default function Page(){
       </main>
     </div>
   );
-};
-
+}
