@@ -21,7 +21,7 @@ const herofont = Pacifico({
   weight: ["400"],
 });
 
-export const GamePage: React.FC = () => {
+export default function Page(){
   const params = useParams();
   const roomid = params.roomid as string;
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
@@ -256,4 +256,3 @@ export const GamePage: React.FC = () => {
   );
 };
 
-export default GamePage;
