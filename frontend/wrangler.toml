@@ -1,0 +1,13 @@
+[build]
+command = "npm run build"
+outputDirectory = ".next"
+
+[build.environment]
+NODE_COMPAT_FLAG = "nodejs_compat"
+
+[dev]
+port = 3000
+
+[[placement]]
+type = "zone"
+name = "your-cloudflare-zone-name"
