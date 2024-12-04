@@ -17,7 +17,7 @@ export const initSocketHandlers = (io) => {
 
       socket.emit("initialRoomSync", {
         messages: await Message.findOne({ roomId: roomName }).messages,
-        gameState: await Game.findOne({ roomId: roomName })
+        gameState: await Game.findOne({ roomId: roomName }),
       });
 
       if (!roomPlayers.has(roomName)) {
@@ -44,7 +44,7 @@ export const initSocketHandlers = (io) => {
           );
 
           io.to(roomName).emit("message", joinMessage);
-          
+
           // Notify all room members of updated player list
           io.to(roomName).emit("updatePlayers", Array.from(roomPlayerSet));
         } catch (error) {
@@ -116,7 +116,7 @@ export const initSocketHandlers = (io) => {
           if (players.has(username)) {
             players.delete(username);
             io.to(roomName).emit("updatePlayers", Array.from(players));
-            
+
             const disconnectMessage = {
               player: SYSTEM_USER,
               content: `${username} has disconnected`,
@@ -134,7 +134,7 @@ export const initSocketHandlers = (io) => {
     socket.on("startGame", async ({ roomName }) => {
       try {
         let game = await Game.findOne({ roomId: roomName });
-    
+
         if (!game) {
           game = new Game({
             roomId: roomName,
@@ -150,16 +150,16 @@ export const initSocketHandlers = (io) => {
           game.playerStates = new Map();
           game.startTime = new Date();
         }
-    
+
         await game.save();
-    
+
         // Broadcast that the game is active to all players
-        io.to(roomName).emit('gameStateUpdate', {
+        io.to(roomName).emit("gameStateUpdate", {
           isActive: true,
           round: 0,
-          totalRounds: GAME_CONFIG.TOTAL_ROUNDS
+          totalRounds: GAME_CONFIG.TOTAL_ROUNDS,
         });
-    
+
         await sendNewQuestion(roomName, io);
       } catch (error) {
         console.error("Error in startGame:", error);
@@ -171,12 +171,16 @@ export const initSocketHandlers = (io) => {
     socket.on("submitAnswer", async ({ roomName, username, answer }) => {
       try {
         let game = await Game.findOne({ roomId: roomName });
-        
+
         if (!game || !game.isActive) {
           socket.emit("gameError", { message: "No active game found" });
           return;
         }
-    
+        if (game.round >= game.totalRounds) {
+          await handleGameCompletion(roomName, io);
+          return;
+        }
+
         // Ensure player state exists
         if (!game.playerStates || !game.playerStates.has(username)) {
           game.playerStates = game.playerStates || new Map();
@@ -186,9 +190,9 @@ export const initSocketHandlers = (io) => {
             attempts: [],
           });
         }
-    
+
         const playerState = game.playerStates.get(username);
-    
+
         // Check for duplicate answers
         if (playerState.attempts.includes(answer.toLowerCase())) {
           socket.emit("answerResult", {
@@ -197,7 +201,7 @@ export const initSocketHandlers = (io) => {
           });
           return;
         }
-    
+
         // Check if player has lives left
         if (playerState.lives <= 0) {
           socket.emit("answerResult", {
@@ -206,22 +210,23 @@ export const initSocketHandlers = (io) => {
           });
           return;
         }
-    
+
         // Check if the answer is correct
         const suggestions = game.currentQuestion.suggestions;
         const index = suggestions.findIndex(
           (s) => s.toLowerCase() === answer.toLowerCase()
         );
-    
+
         // Track the attempt
         playerState.attempts.push(answer.toLowerCase());
-    
+
         if (index !== -1) {
           // Correct answer
-          const pointValues = [20, 15, 10, 5]; // Example point distribution
-          const score = pointValues[index] || 10;
+          const pointValues = Object.values(GAME_CONFIG.POINTS_PER_ANSWER);
+          const score =
+            pointValues[index] || GAME_CONFIG.POINTS_PER_ANSWER.TENTH;
           playerState.score += score;
-    
+
           // Broadcast result to all players
           io.to(roomName).emit("answerResult", {
             correct: true,
@@ -233,7 +238,7 @@ export const initSocketHandlers = (io) => {
         } else {
           // Incorrect answer
           playerState.lives--;
-    
+
           // Emit result to the player who submitted the answer
           socket.emit("answerResult", {
             correct: false,
@@ -242,19 +247,18 @@ export const initSocketHandlers = (io) => {
             message: `Wrong answer! ${playerState.lives} lives left`,
           });
         }
-    
+
         // Mark playerStates as modified and save
-        game.markModified('playerStates');
+        game.markModified("playerStates");
         await game.save();
-    
+
         // Broadcast updated player state to all players in the room
         io.to(roomName).emit("playerStatsUpdate", {
           [username]: {
             lives: playerState.lives,
             score: playerState.score,
-          }
+          },
         });
-    
       } catch (error) {
         console.error("Error processing answer:", error);
         socket.emit("gameError", { message: "Error processing answer" });
@@ -265,7 +269,7 @@ export const initSocketHandlers = (io) => {
     socket.on("getFullGameState", async ({ roomId }, callback) => {
       try {
         let game = await Game.findOne({ roomId });
-        
+
         // If no game exists, create a default inactive game state
         if (!game) {
           game = new Game({
@@ -275,9 +279,9 @@ export const initSocketHandlers = (io) => {
             totalRounds: GAME_CONFIG.TOTAL_ROUNDS,
             playerStates: new Map(),
             currentQuestion: null,
-            startTime: new Date()
+            startTime: new Date(),
           });
-          
+
           await game.save();
         }
 
@@ -288,15 +292,17 @@ export const initSocketHandlers = (io) => {
             round: game.round,
             totalRounds: game.totalRounds,
             currentQuestion: game.currentQuestion,
-            playerStates: game.playerStates ? Array.from(game.playerStates) : [],
-            roundStartTime: game.startTime
-          }
+            playerStates: game.playerStates
+              ? Array.from(game.playerStates)
+              : [],
+            roundStartTime: game.startTime,
+          },
         });
       } catch (error) {
         console.error("Error fetching game state:", error);
-        callback({ 
-          success: false, 
-          message: "Error fetching game state" 
+        callback({
+          success: false,
+          message: "Error fetching game state",
         });
       }
     });

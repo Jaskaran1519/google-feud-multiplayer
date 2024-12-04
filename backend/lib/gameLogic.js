@@ -3,7 +3,7 @@ import { generateQuestion } from "../services/geminiService.js";
 import { getAutocompleteSuggestions } from "../services/googleSearchService.js";
 import { GAME_CONFIG } from "../config/config.js";
 
-const ROUND_DURATION = GAME_CONFIG.ROUND_DURATION; 
+const ROUND_DURATION = GAME_CONFIG.ROUND_DURATION;
 const TOTAL_ROUNDS = GAME_CONFIG.TOTAL_ROUNDS;
 
 export async function sendNewQuestion(roomName, io) {
@@ -33,6 +33,11 @@ export async function sendNewQuestion(roomName, io) {
       totalRounds: TOTAL_ROUNDS,
     });
 
+    if (game.round >= game.totalRounds) {
+      await handleGameCompletion(roomName, io);
+      return;
+    }
+
     setTimeout(async () => {
       const currentGame = await Game.findOne({ roomId: roomName });
       if (currentGame && currentGame.round < TOTAL_ROUNDS) {
@@ -54,3 +59,37 @@ export async function sendNewQuestion(roomName, io) {
     });
   }
 }
+
+export const handleGameCompletion = async (roomName, io) => {
+  try {
+    let game = await Game.findOne({ roomId: roomName });
+
+    if (!game) {
+      console.error("No game found to complete");
+      return;
+    }
+
+    // Collect final scores
+    const finalScores = {};
+    if (game.playerStates) {
+      for (const [username, playerState] of game.playerStates.entries()) {
+        finalScores[username] = playerState.score || 0;
+      }
+    }
+
+    // Update game state
+    game.isActive = false;
+    await game.save();
+
+    // Emit game over event with final scores
+    io.to(roomName).emit("gameOver", {
+      finalScores: finalScores,
+      message: "Game completed!",
+    });
+  } catch (error) {
+    console.error("Error in game completion:", error);
+    io.to(roomName).emit("gameError", {
+      message: "Error completing the game",
+    });
+  }
+};

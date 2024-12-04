@@ -6,14 +6,11 @@ interface ChatInputProps extends React.TextareaHTMLAttributes<HTMLTextAreaElemen
 const ChatInput = React.forwardRef<HTMLTextAreaElement, ChatInputProps>(
   ({ className, onChange, ...props }, ref) => {
     const handleInputChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-      // Reset height to auto to get the correct scrollHeight
       event.target.style.height = 'auto';
       
-      // Set new height based on scrollHeight, with a maximum of approximately 4 lines
       const newHeight = Math.min(event.target.scrollHeight, 96); // 24px per line * 4 lines
       event.target.style.height = `${newHeight}px`;
       
-      // Call the original onChange handler if it exists
       onChange?.(event);
     };
 
@@ -22,11 +19,12 @@ const ChatInput = React.forwardRef<HTMLTextAreaElement, ChatInputProps>(
         ref={ref}
         onChange={handleInputChange}
         className={cn(
-          "min-h-[40px] max-h-24 px-4 py-3 bg-background text-sm",
+          "min-h-[24px] max-h-24 px-4 py-3 bg-background text-sm",
           "placeholder:text-muted-foreground focus-visible:outline-none",
           "focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50",
           "w-full rounded-md resize-none overflow-y-auto",
-          "scrollbar-thin scrollbar-thumb-transparent", // Hide scrollbar but keep functionality
+          "scrollbar-thin scrollbar-thumb-transparent",
+          'bg-transparent border-[1px] border-white',
           className
         )}
         {...props}

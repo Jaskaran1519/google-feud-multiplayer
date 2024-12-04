@@ -201,11 +201,10 @@ export const GamePage: React.FC = () => {
           >
             Googussy
           </h1>
-          <span className="text-md text-gray-200 hidden md:flex
-           ">
-            <span className="font-semibold text-lg text-white"> Room ID: </span>{" "}
+          <div className="text-md text-gray-200 flex gap-2 items-center ">
+            <h2 className="font-semibold text-lg text-white">Room ID:</h2>
             {roomid}
-          </span>
+          </div>
           <Sheet open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
             <SheetTrigger asChild>
               <Button size="icon" className="md:hidden">
@@ -214,15 +213,17 @@ export const GamePage: React.FC = () => {
             </SheetTrigger>
 
             <SheetTitle className="hidden">hello</SheetTitle>
-            <SheetContent side="right" className="w-[300px] sm:w-[400px] bg-zinc-900 text-white">
-              <span className="text-md text-gray-200 ">
-                <span className="font-semibold text-lg text-white">
-                  {" "}
-                  Room ID:{" "}
-                </span>{" "}
+            <SheetContent
+              side="right"
+              className="w-[300px] sm:w-[400px] bg-zinc-900 text-white"
+            >
+              <div className="text-md text-gray-200 flex gap-2 items-center ">
+                <h2 className="font-semibold text-lg text-white">Room ID:</h2>
                 {roomid}
-              </span>
-              <h2 className="visually-hidden mt-12 mb-5 text-white font-semibold text-lg">Player List</h2>
+              </div>
+              <h2 className="visually-hidden mt-12 mb-5 text-white font-semibold text-lg">
+                Player List
+              </h2>
               <PlayerList player={player} />
             </SheetContent>
           </Sheet>
@@ -230,25 +231,25 @@ export const GamePage: React.FC = () => {
       </header>
 
       <main className="container mx-auto p-4 flex flex-col lg:flex-row gap-4">
-        <div className="flex-grow lg:w-2/3">
+        <div className="flex-grow lg:w-2/3 flex flex-col gap-4">
           <GameArea
             socket={socketRef.current || undefined}
             roomId={roomid}
             gameState={gameState}
             playerStats={playerStats}
           />
+          <div className="hidden lg:block">
+            <PlayerList player={player} />
+          </div>
         </div>
 
-        <div className=" flex flex-col gap-4">
+        <div className="flex flex-col gap-4">
           <ChatArea
             messages={chatMessages}
             message={message}
             setMessage={setMessage}
             sendMessage={sendMessage}
           />
-          <div className="hidden lg:block">
-            <PlayerList player={player} />
-          </div>
         </div>
       </main>
     </div>

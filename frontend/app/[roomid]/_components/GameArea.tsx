@@ -1,5 +1,5 @@
 "use client";
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { GameState, PlayerStats } from "@/types/game";
 import { Socket } from "socket.io-client";
 
@@ -9,7 +9,7 @@ const GAME_CONFIG = {
 };
 
 interface GameAreaProps {
-  socket?: Socket; // Make socket optional
+  socket?: Socket;
   roomId: string;
   gameState: GameState;
   playerStats: PlayerStats;
@@ -25,10 +25,40 @@ export const GameArea: React.FC<GameAreaProps> = ({
   const [timeLeft, setTimeLeft] = useState(GAME_CONFIG.ROUND_DURATION);
   const [playerStats, setPlayerStats] = useState(initialPlayerStats);
   const [gameState, setGameState] = useState(initialGameState);
+  const [finalScores, setFinalScores] = useState<{ [key: string]: number }>({});
+
+  // Reset timer and check for new question
+  useEffect(() => {
+    if (gameState.currentQuestion) {
+      setTimeLeft(GAME_CONFIG.ROUND_DURATION);
+    }
+  }, [gameState.currentQuestion]);
+
+  // Timer countdown logic
+  useEffect(() => {
+    let timerId: NodeJS.Timeout;
+
+    if (gameState.isActive && timeLeft > 0) {
+      timerId = setTimeout(() => {
+        setTimeLeft((prev) => prev - 1);
+      }, 1000);
+    }
+
+    // Optional: Add logic for when time runs out
+    if (timeLeft === 0 && socket) {
+      socket.emit("timeExpired", {
+        roomName: roomId,
+        username: localStorage.getItem("playerName"),
+      });
+    }
+
+    return () => {
+      if (timerId) clearTimeout(timerId);
+    };
+  }, [gameState.isActive, timeLeft, socket, roomId]);
 
   // Comprehensive socket event handling
   useEffect(() => {
-    // Add a null check before adding listeners
     if (!socket) {
       console.warn("Socket is not initialized");
       return;
@@ -36,6 +66,7 @@ export const GameArea: React.FC<GameAreaProps> = ({
 
     const handleGameStateUpdate = (updatedGameState: any) => {
       console.log("Game state update received:", updatedGameState);
+
       setGameState((prev) => ({
         ...prev,
         ...updatedGameState,
@@ -46,20 +77,26 @@ export const GameArea: React.FC<GameAreaProps> = ({
       const currentUsername = localStorage.getItem("playerName");
       if (currentUsername && statsUpdate[currentUsername]) {
         console.log("Player stats update received:", statsUpdate);
-        setPlayerStats((prev) => ({
+        setPlayerStats({
           lives: statsUpdate[currentUsername].lives,
           score: statsUpdate[currentUsername].score,
-        }));
+        });
       }
     };
 
     const handleNewQuestion = (questionData: any) => {
       console.log("New question received:", questionData);
+
+      // Reset lives and timer for a new round
+      const currentUsername = localStorage.getItem("playerName");
+
       setGameState((prev) => ({
         ...prev,
-        ...questionData,
+        currentQuestion: questionData.currentQuestion || questionData,
         isActive: true,
+        round: questionData.round || prev.round,
       }));
+
       setTimeLeft(GAME_CONFIG.ROUND_DURATION);
       setAnswer("");
     };
@@ -70,57 +107,33 @@ export const GameArea: React.FC<GameAreaProps> = ({
         ...prev,
         isActive: false,
       }));
+
+      // Set final scores if provided
+      if (gameOverData && gameOverData.finalScores) {
+        setFinalScores(gameOverData.finalScores);
+      }
     };
 
-    const handleAnswerResult = (result: any) => {
-      console.log("Answer result:", result);
-      // Optional: Add specific handling for answer results
-    };
-
-    // Add socket listeners
     socket.on("gameStateUpdate", handleGameStateUpdate);
     socket.on("playerStatsUpdate", handlePlayerStatsUpdate);
     socket.on("newQuestion", handleNewQuestion);
     socket.on("gameOver", handleGameOver);
-    socket.on("answerResult", handleAnswerResult);
 
-    // Error handling
     socket.on("gameError", (error: any) => {
       console.error("Game error:", error);
       alert(error.message);
     });
 
-    // Cleanup listeners
     return () => {
       socket.off("gameStateUpdate", handleGameStateUpdate);
       socket.off("playerStatsUpdate", handlePlayerStatsUpdate);
       socket.off("newQuestion", handleNewQuestion);
       socket.off("gameOver", handleGameOver);
-      socket.off("answerResult", handleAnswerResult);
       socket.off("gameError");
     };
-  }, [socket]); // Depend on socket to re-run if socket changes
+  }, [socket]);
 
-  // Timer and round management
-  useEffect(() => {
-    // Reset timer when a new question arrives
-    if (gameState.currentQuestion) {
-      setTimeLeft(GAME_CONFIG.ROUND_DURATION);
-    }
-
-    // Timer countdown logic
-    if (gameState.isActive && timeLeft > 0) {
-      const timerId = setTimeout(() => {
-        setTimeLeft((prev) => prev - 1);
-      }, 1000);
-
-      return () => clearTimeout(timerId);
-    }
-  }, [gameState.isActive, gameState.currentQuestion, timeLeft]);
-
-  // Answer submission handler
   const handleSubmit = useCallback(() => {
-    // Additional null check for socket
     if (!socket || !answer.trim()) return;
 
     socket.emit("submitAnswer", {
@@ -131,9 +144,7 @@ export const GameArea: React.FC<GameAreaProps> = ({
     setAnswer("");
   }, [answer, roomId, socket]);
 
-  // Start game handler
   const handleStartGame = () => {
-    // Additional null check for socket
     if (!socket) {
       console.warn("Cannot start game: Socket not initialized");
       return;
@@ -143,10 +154,10 @@ export const GameArea: React.FC<GameAreaProps> = ({
     socket.emit("startGame", { roomName: roomId });
   };
 
-  // Debug logging
-  useEffect(() => {
-    console.log("Current Game State:", gameState);
-  }, [gameState]);
+  // Sort scores in descending order
+  const sortedScores = Object.entries(finalScores)
+    .sort(([, a], [, b]) => b - a)
+    .map(([player, score]) => ({ player, score }));
 
   return (
     <div className="w-full p-4 bg-white rounded-lg shadow">
@@ -204,14 +215,47 @@ export const GameArea: React.FC<GameAreaProps> = ({
           </div>
         </>
       ) : (
-        <div
-          className="text-center min-h-[400px] flex justify-center items-center"
-        >
+        <div className="text-center min-h-[400px] flex flex-col justify-center items-center">
+          {Object.keys(finalScores).length > 0 ? (
+            <div className="w-full max-w-md">
+              <h2 className="text-2xl font-bold mb-4">Final Scores</h2>
+              <div className="bg-gray-100 rounded-lg p-4">
+                {sortedScores.map(({ player, score }, index) => (
+                  <div
+                    key={player}
+                    className={`flex justify-between items-center p-2 ${
+                      index === 0
+                        ? "bg-yellow-200 font-bold"
+                        : index === 1
+                        ? "bg-gray-200"
+                        : index === 2
+                        ? "bg-orange-100"
+                        : ""
+                    }`}
+                  >
+                    <span>
+                      {index === 0
+                        ? "🥇"
+                        : index === 1
+                        ? "🥈"
+                        : index === 2
+                        ? "🥉"
+                        : ""}{" "}
+                      {player}
+                    </span>
+                    <span>{score}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <p className="text-gray-600 mb-4">No game in progress</p>
+          )}
           <button
             onClick={handleStartGame}
-            className="p-20  bg-green-500 text-white text-xl font-semibold rounded-full"
+            className="mt-6 p-4 bg-green-500 text-white text-xl font-semibold rounded-full hover:bg-green-600 transition-colors"
           >
-            Start
+            Start New Game
           </button>
         </div>
       )}
