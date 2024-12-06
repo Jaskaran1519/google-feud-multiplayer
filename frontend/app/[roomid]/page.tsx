@@ -1,6 +1,7 @@
 //app/[roomid]/page.tsx
 "use client";
 import { useEffect, useState, useRef } from "react";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,7 +11,7 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { Menu } from "lucide-react";
-import ChatArea from "./_components/ChatArea";
+const ChatArea = dynamic(() => import('./_components/ChatArea'), { ssr: false });
 import PlayerList from "./_components/PlayerList";
 import { io, Socket } from "socket.io-client";
 import { GameArea } from "./_components/GameArea";

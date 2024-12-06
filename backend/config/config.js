@@ -9,7 +9,7 @@ export const INACTIVE_TIME = 30 * 60 * 1000;
 // Game Configuration
 export const GAME_CONFIG = {
   TOTAL_ROUNDS: 3,
-  ROUND_DURATION: 20000, // 30 seconds per round
+  ROUND_DURATION: 30000, // 30 seconds per round
   LIVES_PER_PLAYER: 3,
   POINTS_PER_ANSWER: {
     FIRST: 100, // First suggestion
