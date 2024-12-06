@@ -1,3 +1,4 @@
+//app/[roomid]/page.tsx
 "use client";
 import { useEffect, useState, useRef } from "react";
 import { useParams } from "next/navigation";
@@ -203,7 +204,7 @@ export default function Page() {
           >
             Googussy
           </h1>
-          <div className="text-md text-gray-200 flex gap-2 items-center ">
+          <div className="text-md text-gray-200 md:flex gap-2 items-center hidden ">
             <h2 className="font-semibold text-lg text-white">Room ID:</h2>
             {roomid}
           </div>
@@ -226,7 +227,7 @@ export default function Page() {
               <h2 className="visually-hidden mt-12 mb-5 text-white font-semibold text-lg">
                 Player List
               </h2>
-              <PlayerList player={player} />
+              <PlayerList player={player} playerStats={playerStats} />
             </SheetContent>
           </Sheet>
         </div>
@@ -241,7 +242,7 @@ export default function Page() {
             playerStats={playerStats}
           />
           <div className="hidden lg:block">
-            <PlayerList player={player} />
+            <PlayerList player={player} playerStats={playerStats} />
           </div>
         </div>
 

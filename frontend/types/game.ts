@@ -18,4 +18,5 @@ export interface GameState {
 export interface PlayerStats {
   lives: number;
   score: number;
+  [key: string]: any; // Add an index signature to allow additional properties
 }

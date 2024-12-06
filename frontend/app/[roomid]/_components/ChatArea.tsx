@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import { ArrowUp } from "lucide-react";
 import { ChatInput } from "@/components/ui/chat/chat-input";
 import { ChatMessageList } from "@/components/ui/chat/chat-message-list";
-import { ChatBubble } from "@/components/ui/chat/chat-bubble";
 
 interface Message {
   player: string;
@@ -29,21 +28,24 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
   sendMessage,
 }) => {
   // Get current user's name from localStorage
-  const currentUser = localStorage.getItem('playerName');
+  const currentUser = localStorage.getItem("playerName");
 
   return (
-    <div className="w-96 max-w-full h-[600px] bg-zinc-750 flex flex-col gap-2 rounded-lg p-4 border border-gray-200">
+    <div className="w-96 max-w-full h-[600px] bg-[#171717] flex flex-col gap-2 rounded-lg p-4 border border-gray-200">
       <ScrollArea className="flex-grow pr-4">
         <div className="flex flex-col gap-2">
-          {messages.map((msg:any, index) => {
+          {messages.map((msg: any, index) => {
             console.log("Message:", msg);
             const isCurrentUser = msg.player === currentUser;
-            const isPreviousMessageFromSameUser = 
+            const isPreviousMessageFromSameUser =
               index > 0 && messages[index - 1].player === msg.player;
-            
+
             if (msg.player === SYSTEM_USER) {
               return (
-                <div key={index} className="flex items-center justify-center w-full my-2">
+                <div
+                  key={index}
+                  className="flex items-center justify-center w-full my-2"
+                >
                   <div className="inline-block bg-gray-100 px-4 py-1.5 rounded-full mx-auto">
                     <span className="text-xs text-gray-500">{msg.content}</span>
                   </div>
@@ -55,14 +57,14 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
               <div
                 key={index}
                 className={`flex ${
-                  isCurrentUser ? 'justify-end' : 'justify-start'
-                } ${isPreviousMessageFromSameUser ? 'mt-0.5' : 'mt-2'}`}
+                  isCurrentUser ? "justify-end" : "justify-start"
+                } ${isPreviousMessageFromSameUser ? "mt-0.5" : "mt-2"}`}
               >
                 <div
-                  className={`max-w-[80%] rounded-lg p-2 ${
+                  className={`max-w-[80%]  px-3 py-2 ${
                     isCurrentUser
-                      ? 'bg-blue-500 text-white ml-auto'
-                      : 'bg-gray-200 text-black mr-auto'
+                      ? "bg-white text-black rounded-l-lg rounded-tr-lg "
+                      : "bg-[#272629] text-white rounded-r-lg rounded-tl-lg"
                   }`}
                 >
                   {!isCurrentUser && (
@@ -87,7 +89,7 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
             }
           }}
           onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-          className="flex-1"
+          className="flex-1 text-white"
         />
         <Button
           className="p-2 rounded-full bg-zinc-700 hover:bg-zinc-800 text-white flex-shrink-0"
