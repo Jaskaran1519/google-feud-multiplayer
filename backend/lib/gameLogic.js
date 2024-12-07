@@ -6,52 +6,50 @@ import { GAME_CONFIG } from "../config/config.js";
 const ROUND_DURATION = GAME_CONFIG.ROUND_DURATION;
 const TOTAL_ROUNDS = GAME_CONFIG.TOTAL_ROUNDS;
 
+const roomTimers = new Map();
+
 export async function sendNewQuestion(roomName, io) {
   console.log("Sending new question for room:", roomName);
   try {
-    const question = await generateQuestion();
+    let game = await Game.findOne({ roomId: roomName });
 
+    if (!game) {
+      console.error("Game not found for room:", roomName);
+      return;
+    }
+
+    const question = await generateQuestion();
     const suggestions = await getAutocompleteSuggestions(question);
 
-    const game = await Game.findOneAndUpdate(
-      { roomId: roomName },
-      {
-        $inc: { round: 1 },
-        currentQuestion: {
-          question,
-          suggestions,
-          answered: false,
-        },
-      },
-      { new: true }
-    );
+    // Update game state (increment round, set current question) *before* emitting newQuestion
+    game.round++;
+    game.currentQuestion = { question, suggestions, answered: false };
+    await game.save(); // Important: Save the updated game state immediately
 
     io.to(roomName).emit("newQuestion", {
       question,
       suggestions,
-      round: game.round,
+      round: game.round, // Send the *updated* round number
       totalRounds: TOTAL_ROUNDS,
     });
 
-    if (game.round >= game.totalRounds) {
-      await handleGameCompletion(roomName, io);
-      return;
+    if (game.round >= TOTAL_ROUNDS) {
+      // Clear any existing timeout for this room
+      if (roomTimers.has(roomName)) {
+        clearTimeout(roomTimers.get(roomName));
+        roomTimers.delete(roomName);
+      }
+
+      // Call handleGameCompletion directly after the round duration
+      setTimeout(() => handleGameCompletion(roomName, io), ROUND_DURATION);
+      return; // Don't set another timeout
     }
 
-    setTimeout(async () => {
-      const currentGame = await Game.findOne({ roomId: roomName });
-      if (currentGame && currentGame.round < TOTAL_ROUNDS) {
-        await sendNewQuestion(roomName, io);
-      } else {
-        console.log("Game over for room:", roomName);
-        io.to(roomName).emit("gameOver", {
-          scores: currentGame.scores,
-        });
-
-        currentGame.isActive = false;
-        await currentGame.save();
-      }
+    // Set timeout for the next round (if not the last round)
+    const timerId = setTimeout(() => {
+      sendNewQuestion(roomName, io);
     }, ROUND_DURATION);
+    roomTimers.set(roomName, timerId);
   } catch (error) {
     console.error("Error sending new question:", error);
     io.to(roomName).emit("gameError", {
@@ -69,11 +67,17 @@ export const handleGameCompletion = async (roomName, io) => {
       return;
     }
 
-    // Collect final scores
+    // Clear the timeout for this room
+    if (roomTimers.has(roomName)) {
+      clearTimeout(roomTimers.get(roomName));
+      roomTimers.delete(roomName);
+    }
+
+    // Correctly collect final scores from playerStates
     const finalScores = {};
     if (game.playerStates) {
       for (const [username, playerState] of game.playerStates.entries()) {
-        finalScores[username] = playerState.score || 0;
+        finalScores[username] = playerState.score;
       }
     }
 

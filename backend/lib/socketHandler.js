@@ -1,7 +1,8 @@
+// index.ts (or wherever your socket.io setup is)
 import Message from "../model/message.js";
 import Game from "../model/game.js";
 import { GAME_CONFIG } from "../config/config.js";
-import { sendNewQuestion } from "./gameLogic.js";
+import { sendNewQuestion, handleGameCompletion } from "./gameLogic.js";
 
 const SYSTEM_USER = "Jaskaran@1519123";
 
@@ -15,11 +16,27 @@ export const initSocketHandlers = (io) => {
       socket.join(roomName);
       usernames.set(socket.id, username);
 
+      // Emit initial room data
+      const game = await Game.findOne({ roomId: roomName });
+      const messages = await Message.findOne({ roomId: roomName });
+
       socket.emit("initialRoomSync", {
-        messages: await Message.findOne({ roomId: roomName }).messages,
-        gameState: await Game.findOne({ roomId: roomName }),
+        messages: messages ? messages.messages : [],
+        gameState: game
+          ? {
+          isActive: game.isActive,
+          round: game.round,
+          totalRounds: game.totalRounds,
+          currentQuestion: game.currentQuestion,
+          playerStates: game.playerStates
+            ? Array.from(game.playerStates)
+            : [],
+          startTime: game.startTime,
+        }
+          : null, // Or a default game state if no game exists yet
       });
 
+      // Manage room players and emit updates
       if (!roomPlayers.has(roomName)) {
         roomPlayers.set(roomName, new Set());
       }
@@ -44,22 +61,10 @@ export const initSocketHandlers = (io) => {
           );
 
           io.to(roomName).emit("message", joinMessage);
-
-          // Notify all room members of updated player list
           io.to(roomName).emit("updatePlayers", Array.from(roomPlayerSet));
         } catch (error) {
           console.error("Error handling join message:", error);
         }
-      }
-
-      try {
-        const roomMessages = await Message.findOne({ roomId: roomName });
-        if (roomMessages && roomMessages.messages) {
-          socket.emit("previousMessages", roomMessages.messages);
-        }
-      } catch (error) {
-        console.error("Error loading previous messages:", error);
-        socket.emit("previousMessages", []);
       }
     });
 
@@ -75,15 +80,10 @@ export const initSocketHandlers = (io) => {
 
         await Message.findOneAndUpdate(
           { roomId: roomName },
-          {
-            $push: {
-              messages: newMessage,
-            },
-          },
+          { $push: { messages: newMessage } },
           { upsert: true }
         );
 
-        console.log("Broadcasting message:", newMessage);
         io.to(roomName).emit("message", newMessage);
       } catch (error) {
         console.error("Error saving message:", error);
@@ -126,8 +126,8 @@ export const initSocketHandlers = (io) => {
             io.to(roomName).emit("message", disconnectMessage);
           }
         }
+        usernames.delete(socket.id);
       }
-      usernames.delete(socket.id);
     });
 
     // Start Game Handler
@@ -139,12 +139,13 @@ export const initSocketHandlers = (io) => {
           game = new Game({
             roomId: roomName,
             isActive: true,
-            round: 0,
+            round: 0, // Start at round 0
             totalRounds: GAME_CONFIG.TOTAL_ROUNDS,
             playerStates: new Map(),
             startTime: new Date(),
           });
         } else {
+          // Reset the existing game
           game.isActive = true;
           game.round = 0;
           game.playerStates = new Map();
@@ -153,13 +154,13 @@ export const initSocketHandlers = (io) => {
 
         await game.save();
 
-        // Broadcast that the game is active to all players
         io.to(roomName).emit("gameStateUpdate", {
           isActive: true,
           round: 0,
           totalRounds: GAME_CONFIG.TOTAL_ROUNDS,
         });
 
+        // Start the game logic
         await sendNewQuestion(roomName, io);
       } catch (error) {
         console.error("Error in startGame:", error);
@@ -174,10 +175,6 @@ export const initSocketHandlers = (io) => {
 
         if (!game || !game.isActive) {
           socket.emit("gameError", { message: "No active game found" });
-          return;
-        }
-        if (game.round >= game.totalRounds) {
-          await handleGameCompletion(roomName, io);
           return;
         }
 
@@ -211,23 +208,24 @@ export const initSocketHandlers = (io) => {
           return;
         }
 
-        // Check if the answer is correct
-        const suggestions = game.currentQuestion.suggestions;
-        const index = suggestions.findIndex(
-          (s) => s.toLowerCase() === answer.toLowerCase()
+        // Check the answer against the current question
+        const isCorrect = game.currentQuestion.suggestions.some(
+          (suggestion) => suggestion.toLowerCase() === answer.toLowerCase()
         );
 
         // Track the attempt
         playerState.attempts.push(answer.toLowerCase());
 
-        if (index !== -1) {
+        if (isCorrect) {
           // Correct answer
+          const index = game.currentQuestion.suggestions.findIndex(
+            (s) => s.toLowerCase() === answer.toLowerCase()
+          );
           const pointValues = Object.values(GAME_CONFIG.POINTS_PER_ANSWER);
           const score =
             pointValues[index] || GAME_CONFIG.POINTS_PER_ANSWER.TENTH;
           playerState.score += score;
 
-          // Broadcast result to all players
           io.to(roomName).emit("answerResult", {
             correct: true,
             player: username,
@@ -239,7 +237,6 @@ export const initSocketHandlers = (io) => {
           // Incorrect answer
           playerState.lives--;
 
-          // Emit result to the player who submitted the answer
           socket.emit("answerResult", {
             correct: false,
             player: username,
@@ -248,11 +245,10 @@ export const initSocketHandlers = (io) => {
           });
         }
 
-        // Mark playerStates as modified and save
+        // Save the updated game state
         game.markModified("playerStates");
         await game.save();
 
-        // Broadcast updated player state to all players in the room
         io.to(roomName).emit("playerStatsUpdate", {
           [username]: {
             lives: playerState.lives,
@@ -270,8 +266,8 @@ export const initSocketHandlers = (io) => {
       try {
         let game = await Game.findOne({ roomId });
 
-        // If no game exists, create a default inactive game state
         if (!game) {
+          // Create a default inactive game state if no game is found
           game = new Game({
             roomId: roomId,
             isActive: false,
@@ -281,7 +277,6 @@ export const initSocketHandlers = (io) => {
             currentQuestion: null,
             startTime: new Date(),
           });
-
           await game.save();
         }
 
