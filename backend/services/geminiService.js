@@ -18,16 +18,16 @@ const QUESTION_CATEGORIES = [
     category: "Daily Life Mysteries",
     prompts: [
       "Generate a short, relatable search query about everyday problems, like 'how to stop...'",
-      "Create an incomplete search about common life challenges, like 'what to do when...'",
-      "Give me a popular search query about solving simple life issues, like 'how can I...'",
+      "Create an incomplete search about common life challenges, like 'when to call...'",
+      "Give me a popular search query about solving simple life issues, like 'how to be a...'",
     ]
   },
   {
     category: "Weird Curiosities",
     prompts: [
-      "Create a quirky, short incomplete search query that starts with 'why does my...'",
-      "Generate a strange but common search about something unexpected, like 'is it normal if...'",
-      "Give me an unusual but relatable search query starting with 'why do...'",
+      "Create a quirky, short incomplete search query that starts with 'why does my dog...'",
+      "Generate a strange but common search about something unexpected, like 'Why is my gf so...'",
+      "Give me an unusual but relatable search query starting with 'why is my cat so...'",
     ]
   },
   {

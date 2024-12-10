@@ -1,4 +1,3 @@
-// GameArea.tsx
 "use client";
 import React, { useState, useEffect, useCallback } from "react";
 import { GameState, PlayerStats } from "@/types/game";
@@ -27,13 +26,15 @@ export const GameArea: React.FC<GameAreaProps> = ({
   const [playerStats, setPlayerStats] = useState(initialPlayerStats);
   const [gameState, setGameState] = useState(initialGameState);
   const [finalScores, setFinalScores] = useState<{ [key: string]: number }>({});
-  const [isGameOver, setIsGameOver] = useState(false); // Track game over state
+  const [isGameOver, setIsGameOver] = useState(false);
+  const [revealedOptions, setRevealedOptions] = useState<string[]>([]);
 
-  // Reset timer when a new question is received
+  // Reset timer and revealed options when a new question is received
   useEffect(() => {
     if (gameState.currentQuestion) {
       setTimeLeft(GAME_CONFIG.ROUND_DURATION);
-      setIsGameOver(false); // Reset game over state on new question
+      setIsGameOver(false);
+      setRevealedOptions([]); // Reset revealed options
     }
   }, [gameState.currentQuestion]);
 
@@ -62,6 +63,9 @@ export const GameArea: React.FC<GameAreaProps> = ({
     const handleGameStateUpdate = (updatedGameState: any) => {
       console.log("Game state update received:", updatedGameState);
       setGameState((prev) => ({ ...prev, ...updatedGameState }));
+      if (updatedGameState.revealedOptions) {
+        setRevealedOptions(updatedGameState.revealedOptions);
+      }
     };
 
     const handlePlayerStatsUpdate = (statsUpdate: any) => {
@@ -82,20 +86,27 @@ export const GameArea: React.FC<GameAreaProps> = ({
       }));
       setTimeLeft(GAME_CONFIG.ROUND_DURATION);
       setAnswer("");
-      setIsGameOver(false); // Reset game over state
+      setIsGameOver(false);
+      setRevealedOptions([]); // Reset revealed options
     };
 
     const handleGameOver = (gameOverData: any) => {
-      console.log("Game over event received:", gameOverData); // Log the entire event
-      console.log("Final scores:", gameOverData.finalScores);
+      console.log("Game over event received:", gameOverData);
       setGameState((prev) => ({ ...prev, isActive: false }));
       setFinalScores(gameOverData.finalScores || {});
-      setIsGameOver(true); // Set game over state
+      setIsGameOver(true);
     };
 
     const handleGameError = (error: any) => {
       console.error("Game error:", error);
-      alert(error.message);
+      alert(error.message || "A game error occurred."); 
+  };
+
+    const handleAnswerResult = (result: any) => {
+      if (result.correct) {
+        // Reveal the full suggestion
+        setRevealedOptions((prev) => [...prev, result.answer]);
+      }
     };
 
     socket.on("gameStateUpdate", handleGameStateUpdate);
@@ -103,6 +114,7 @@ export const GameArea: React.FC<GameAreaProps> = ({
     socket.on("newQuestion", handleNewQuestion);
     socket.on("gameOver", handleGameOver);
     socket.on("gameError", handleGameError);
+    socket.on("answerResult", handleAnswerResult);
 
     return () => {
       socket.off("gameStateUpdate", handleGameStateUpdate);
@@ -110,6 +122,7 @@ export const GameArea: React.FC<GameAreaProps> = ({
       socket.off("newQuestion", handleNewQuestion);
       socket.off("gameOver", handleGameOver);
       socket.off("gameError", handleGameError);
+      socket.off("answerResult", handleAnswerResult);
     };
   }, [socket]);
 
@@ -161,18 +174,23 @@ export const GameArea: React.FC<GameAreaProps> = ({
             <div className="mt-4 space-y-2">
               {gameState.currentQuestion.suggestions &&
                 gameState.currentQuestion.suggestions.map(
-                  (suggestion, index) => (
-                    <div
-                      key={index}
-                      className="p-2 bg-gray-100 rounded hover:bg-gray-200 cursor-pointer"
-                      onClick={() => {
-                        setAnswer(suggestion);
-                        handleSubmit();
-                      }}
-                    >
-                      {suggestion}
-                    </div>
-                  )
+                  (suggestion, index) => {
+                    const isRevealed = revealedOptions.includes(suggestion);
+                    const keyword = suggestion
+                      .replace(gameState.currentQuestion?.question || "", "")
+                      .trim();
+                    return (
+                      <div
+                        key={index}
+                        className={`p-2 bg-gray-100 rounded transition-opacity duration-500`}
+                        style={{
+                          opacity: isRevealed ? 1 : 0,
+                        }}
+                      >
+                        {keyword}
+                      </div>
+                    );
+                  }
                 )}
             </div>
           </div>
@@ -244,6 +262,7 @@ export const GameArea: React.FC<GameAreaProps> = ({
           )}
         </div>
       )}
+      
     </div>
   );
 };

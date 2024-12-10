@@ -13,47 +13,28 @@ export const initSocketHandlers = (io) => {
   io.on("connection", (socket) => {
     // Join Room Handler
     socket.on("joinRoom", async ({ roomName, username }) => {
-      socket.join(roomName);
-      usernames.set(socket.id, username);
+      try {
+        socket.join(roomName);
+        usernames.set(socket.id, username);
+        socket.data.username = username; // Store username in socket.data
 
-      // Emit initial room data
-      const game = await Game.findOne({ roomId: roomName });
-      const messages = await Message.findOne({ roomId: roomName });
-
-      socket.emit("initialRoomSync", {
-        messages: messages ? messages.messages : [],
-        gameState: game
-          ? {
-          isActive: game.isActive,
-          round: game.round,
-          totalRounds: game.totalRounds,
-          currentQuestion: game.currentQuestion,
-          playerStates: game.playerStates
-            ? Array.from(game.playerStates)
-            : [],
-          startTime: game.startTime,
+        // Manage room players and emit updates
+        if (!roomPlayers.has(roomName)) {
+          roomPlayers.set(roomName, new Set());
         }
-          : null, // Or a default game state if no game exists yet
-      });
 
-      // Manage room players and emit updates
-      if (!roomPlayers.has(roomName)) {
-        roomPlayers.set(roomName, new Set());
-      }
+        const roomPlayerSet = roomPlayers.get(roomName);
+        const isNewUser = !roomPlayerSet.has(username);
 
-      const roomPlayerSet = roomPlayers.get(roomName);
-      const isNewUser = !roomPlayerSet.has(username);
+        if (isNewUser) {
+          roomPlayerSet.add(username);
 
-      if (isNewUser) {
-        roomPlayerSet.add(username);
+          const joinMessage = {
+            player: SYSTEM_USER,
+            content: `${username} has joined the room`,
+            timestamp: new Date(),
+          };
 
-        const joinMessage = {
-          player: SYSTEM_USER,
-          content: `${username} has joined the room`,
-          timestamp: new Date(),
-        };
-
-        try {
           await Message.findOneAndUpdate(
             { roomId: roomName },
             { $push: { messages: joinMessage } },
@@ -62,15 +43,23 @@ export const initSocketHandlers = (io) => {
 
           io.to(roomName).emit("message", joinMessage);
           io.to(roomName).emit("updatePlayers", Array.from(roomPlayerSet));
-        } catch (error) {
-          console.error("Error handling join message:", error);
+
+          // Emit initial room data (game state, messages, etc.)
+          const messages = await Message.findOne({ roomId: roomName });
+          socket.emit("initialRoomSync", {
+            messages: messages ? messages.messages : [],
+            gameState: await Game.findOne({ roomId: roomName }), // Send initial game state
+            players: Array.from(roomPlayerSet),
+          });
         }
+      } catch (error) {
+        console.error("Error handling joinRoom event:", error);
+        socket.emit("gameError", { message: "Error joining room" }); // Emit error to the client
       }
     });
 
     // Message Handler
     socket.on("message", async ({ roomName, username, message }) => {
-      console.log("Message received:", { roomName, username, message });
       try {
         const newMessage = {
           player: username,
@@ -173,94 +162,144 @@ export const initSocketHandlers = (io) => {
       try {
         let game = await Game.findOne({ roomId: roomName });
 
+        // Basic validation checks
         if (!game || !game.isActive) {
-          socket.emit("gameError", { message: "No active game found" });
-          return;
+          return socket.emit("gameError", { message: "No active game found" });
         }
 
-        // Ensure player state exists
         if (!game.playerStates || !game.playerStates.has(username)) {
-          game.playerStates = game.playerStates || new Map();
-          game.playerStates.set(username, {
-            lives: GAME_CONFIG.LIVES_PER_PLAYER,
-            score: 0,
-            attempts: [],
+          return socket.emit("gameError", {
+            message: "You are not a participant in this game",
           });
         }
 
-        const playerState = game.playerStates.get(username);
+        let playerState = game.playerStates.get(username);
 
-        // Check for duplicate answers
-        if (playerState.attempts.includes(answer.toLowerCase())) {
-          socket.emit("answerResult", {
+        // Normalize the answer to lowercase and trim spaces
+        const normalizedAnswer = answer.toLowerCase().trim();
+
+        // Ensure currentQuestion and its properties are defined
+        if (!game.currentQuestion || !game.currentQuestion.keywords) {
+          console.error("Current question data is missing or incomplete");
+          return socket.emit("gameError", {
+            message: "Current question data is missing or incomplete",
+          });
+        }
+
+        // Ensure revealedOptions is an array
+        if (!Array.isArray(game.revealedOptions)) {
+          game.revealedOptions = [];
+        }
+
+        // Check if answer has already been revealed
+        if (game.revealedOptions.includes(normalizedAnswer)) {
+          return socket.emit("answerResult", {
             correct: false,
-            message: "You've already tried this answer",
+            message: "This option has already been revealed",
           });
-          return;
         }
 
-        // Check if player has lives left
-        if (playerState.lives <= 0) {
-          socket.emit("answerResult", {
-            correct: false,
-            message: "No more lives left for this round",
-          });
-          return;
-        }
-
-        // Check the answer against the current question
-        const isCorrect = game.currentQuestion.suggestions.some(
-          (suggestion) => suggestion.toLowerCase() === answer.toLowerCase()
+        // Check if the normalized answer matches any of the keywords
+        const keywordIndex = game.currentQuestion.keywords.findIndex(
+          (keyword) => keyword.toLowerCase().trim() === normalizedAnswer
         );
 
-        // Track the attempt
-        playerState.attempts.push(answer.toLowerCase());
+        if (keywordIndex !== -1) {
+          // Find the corresponding suggestion
+          const suggestion = game.currentQuestion.suggestions[keywordIndex];
 
-        if (isCorrect) {
-          // Correct answer
-          const index = game.currentQuestion.suggestions.findIndex(
-            (s) => s.toLowerCase() === answer.toLowerCase()
-          );
-          const pointValues = Object.values(GAME_CONFIG.POINTS_PER_ANSWER);
-          const score =
-            pointValues[index] || GAME_CONFIG.POINTS_PER_ANSWER.TENTH;
-          playerState.score += score;
+          if (suggestion) {
+            const pointValues = Object.values(GAME_CONFIG.POINTS_PER_ANSWER);
+            const score =
+              pointValues[keywordIndex] || GAME_CONFIG.POINTS_PER_ANSWER.TENTH;
 
-          io.to(roomName).emit("answerResult", {
-            correct: true,
-            player: username,
-            score,
-            answer,
-            totalScore: playerState.score,
-          });
+            // Update player's score
+            playerState.score += score;
+
+            // Add the normalized answer to revealedOptions array
+            game.revealedOptions.push(normalizedAnswer);
+
+            // Emit feedback to the player
+            io.to(roomName).emit("answerResult", {
+              correct: true,
+              player: username,
+              score,
+              answer: suggestion,
+              totalScore: playerState.score,
+            });
+
+            // Check for round/game end
+            if (
+              game.revealedOptions.length ===
+              game.currentQuestion.keywords.length
+            ) {
+              clearRoomTimer(roomName); // Clear the timer if all answers are revealed
+              if (game.round >= GAME_CONFIG.TOTAL_ROUNDS) {
+                await handleGameCompletion(roomName, io);
+              } else {
+                await sendNewQuestion(roomName, io);
+              }
+            }
+          } else {
+            console.error("No matching suggestion found for the keyword");
+            return socket.emit("gameError", {
+              message: "No matching suggestion found for your answer",
+            });
+          }
         } else {
-          // Incorrect answer
+          // Handle incorrect answer
           playerState.lives--;
-
           socket.emit("answerResult", {
             correct: false,
-            player: username,
+            message: `Incorrect. ${playerState.lives} lives remaining.`,
             livesLeft: playerState.lives,
-            message: `Wrong answer! ${playerState.lives} lives left`,
           });
+
+          // Check if player is out of lives
+          // if (playerState.lives <= 0) {
+          //   socket.emit("gameOver", {
+          //     message: "You've run out of lives!",
+          //     finalScore: playerState.score,
+          //   });
+          // }
         }
 
-        // Save the updated game state
+        // Update game state
+        game.playerStates.set(username, playerState);
         game.markModified("playerStates");
         await game.save();
 
+        // Broadcast updated player stats
         io.to(roomName).emit("playerStatsUpdate", {
           [username]: {
             lives: playerState.lives,
             score: playerState.score,
           },
         });
+
+        console.log("Game State after answer:", {
+          roomId: game.roomId,
+          round: game.round,
+          revealedOptions: game.revealedOptions,
+          currentQuestion: {
+            question: game.currentQuestion.question,
+            keywords: game.currentQuestion.keywords,
+            suggestionsCount: game.currentQuestion.suggestions.length,
+          },
+          playerState: {
+            username,
+            lives: playerState.lives,
+            score: playerState.score,
+          },
+        });
       } catch (error) {
         console.error("Error processing answer:", error);
-        socket.emit("gameError", { message: "Error processing answer" });
+        socket.emit("gameError", {
+          message:
+            error.message || "An error occurred while processing your answer.",
+        });
       }
     });
-
     // Get Full Game State Handler
     socket.on("getFullGameState", async ({ roomId }, callback) => {
       try {
