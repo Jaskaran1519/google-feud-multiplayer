@@ -11,8 +11,13 @@ export interface GameState {
   currentQuestion?: {
     question: string;
     suggestions: string[];
+    keywords?: string[];
   };
   scores: Record<string, number>;
+  roundDuration?: number;
+  livesPerPlayer?: number;
+  isReviewing?: boolean;
+  reviewReason?: string;
 }
 
 export interface PlayerStats {

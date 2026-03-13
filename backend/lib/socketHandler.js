@@ -2,7 +2,7 @@
 import Message from "../model/message.js";
 import Game from "../model/game.js";
 import { GAME_CONFIG } from "../config/config.js";
-import { sendNewQuestion, handleGameCompletion } from "./gameLogic.js";
+import { sendNewQuestion, handleGameCompletion, endRoundAndProceed } from "./gameLogic.js";
 
 const SYSTEM_USER = "Jaskaran@1519123";
 
@@ -174,6 +174,11 @@ export const initSocketHandlers = (io) => {
         }
 
         let playerState = game.playerStates.get(username);
+        if (playerState.lives <= 0) {
+          return socket.emit("gameError", {
+            message: "You have no lives left for this round!",
+          });
+        }
 
         // Normalize the answer to lowercase and trim spaces
         const normalizedAnswer = answer.toLowerCase().trim();
@@ -192,7 +197,11 @@ export const initSocketHandlers = (io) => {
         }
 
         // Check if answer has already been revealed
-        if (game.revealedOptions.includes(normalizedAnswer)) {
+        const isRevealed = game.currentQuestion.keywords.some((kw, idx) => {
+          return kw.toLowerCase().trim() === normalizedAnswer && game.revealedOptions.includes(kw);
+        });
+
+        if (isRevealed) {
           return socket.emit("answerResult", {
             correct: false,
             message: "This option has already been revealed",
@@ -216,15 +225,16 @@ export const initSocketHandlers = (io) => {
             // Update player's score
             playerState.score += score;
 
-            // Add the normalized answer to revealedOptions array
-            game.revealedOptions.push(normalizedAnswer);
+            // Add the corresponding keyword to revealedOptions array directly instead of normalizedAnswer/suggestion
+            // This ensures exactly what is shown on screen is marked revealed
+            game.revealedOptions.push(game.currentQuestion.keywords[keywordIndex]);
 
             // Emit feedback to the player
             io.to(roomName).emit("answerResult", {
               correct: true,
               player: username,
               score,
-              answer: suggestion,
+              answer: game.currentQuestion.keywords[keywordIndex],
               totalScore: playerState.score,
             });
 
@@ -233,12 +243,7 @@ export const initSocketHandlers = (io) => {
               game.revealedOptions.length ===
               game.currentQuestion.keywords.length
             ) {
-              clearRoomTimer(roomName); // Clear the timer if all answers are revealed
-              if (game.round >= GAME_CONFIG.TOTAL_ROUNDS) {
-                await handleGameCompletion(roomName, io);
-              } else {
-                await sendNewQuestion(roomName, io);
-              }
+              endRoundAndProceed(roomName, io, "all_guessed");
             }
           } else {
             console.error("No matching suggestion found for the keyword");
@@ -248,20 +253,29 @@ export const initSocketHandlers = (io) => {
           }
         } else {
           // Handle incorrect answer
-          playerState.lives--;
+          if (playerState.lives > 0) {
+            playerState.lives--;
+          }
           socket.emit("answerResult", {
             correct: false,
             message: `Incorrect. ${playerState.lives} lives remaining.`,
             livesLeft: playerState.lives,
           });
 
-          // Check if player is out of lives
-          // if (playerState.lives <= 0) {
-          //   socket.emit("gameOver", {
-          //     message: "You've run out of lives!",
-          //     finalScore: playerState.score,
-          //   });
-          // }
+          // Check if all players are out of lives
+          let allDead = true;
+          for (const [pName, pState] of game.playerStates.entries()) {
+            // Because playerState hasn't been saved yet, we use our local mutation for this username
+            const lives = pName === username ? playerState.lives : pState.lives;
+            if (lives > 0) {
+              allDead = false;
+              break;
+            }
+          }
+
+          if (allDead) {
+             endRoundAndProceed(roomName, io, "lives_exhausted");
+          }
         }
 
         // Update game state
