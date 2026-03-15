@@ -35,7 +35,6 @@ export const ChatArea: React.FC<ChatAreaProps> = ({
       <ScrollArea className="flex-grow pr-4">
         <div className="flex flex-col gap-2">
           {messages.map((msg: any, index) => {
-            console.log("Message:", msg);
             const isCurrentUser = msg.player === currentUser;
             const isPreviousMessageFromSameUser =
               index > 0 && messages[index - 1].player === msg.player;

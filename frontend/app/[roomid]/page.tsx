@@ -57,7 +57,6 @@ export default function Page() {
   }, []);
 
   useEffect(() => {
-    // Create socket connection
     socketRef.current = io(
       process.env.NEXT_PUBLIC_SOCKET_URL || "http://localhost:5000/"
     );
@@ -69,28 +68,17 @@ export default function Page() {
       return;
     }
 
-    // Debug logging for all socket events
-    const debugEvents = [
-      "initialRoomSync",
-      "message",
-      "updatePlayers",
-      "gameStateUpdate",
-      "playerStatsUpdate",
-      "newQuestion",
-      "gameOver",
-      "gameError",
-    ];
-
-    debugEvents.forEach((event) => {
-      socket.on(event, (data) => {
-        console.log(`Received ${event} event:`, data);
-      });
-    });
-
     socket.on(
       "initialRoomSync",
       (data: { messages: Message[]; gameState: any; players: string[] }) => {
-        console.log("Initial Room Sync Data:", data);
+        // Sync chat messages
+        if (data.messages) {
+          setChatMessages(data.messages.map((m: any) => ({
+            player: m.player,
+            content: m.content,
+            timestamp: new Date(m.timestamp),
+          })));
+        }
 
         // Sync game state
         if (data.gameState) {
@@ -103,7 +91,6 @@ export default function Page() {
             scores: data.gameState.scores || {},
           }));
 
-          // Update player stats
           const playerStatesArray = Array.isArray(data.gameState.playerStates)
             ? data.gameState.playerStates
             : Object.entries(data.gameState.playerStates || {});
@@ -122,7 +109,6 @@ export default function Page() {
       }
     );
 
-    // Other socket event listeners (unchanged)
     socket.on("message", (data: Message) => {
       setChatMessages((prev) => [
         ...prev,
@@ -141,7 +127,6 @@ export default function Page() {
     });
 
     socket.on("gameStateUpdate", (updatedGameState: any) => {
-      console.log("Game State Update Received:", updatedGameState);
       setGameState((prevState) => ({
         ...prevState,
         ...updatedGameState,
@@ -149,7 +134,6 @@ export default function Page() {
     });
 
     socket.on("newQuestion", (questionData: any) => {
-      console.log("New Question Received:", questionData);
       setGameState((prevState) => ({
         ...prevState,
         ...questionData,
@@ -159,10 +143,10 @@ export default function Page() {
 
     socket.on("playerStatsUpdate", (statsUpdate: any) => {
       if (currentUsername && statsUpdate[currentUsername]) {
-        setPlayerStats((prev) => ({
+        setPlayerStats({
           lives: statsUpdate[currentUsername].lives,
           score: statsUpdate[currentUsername].score,
-        }));
+        });
       }
     });
 
@@ -198,16 +182,18 @@ export default function Page() {
 
   return (
     <div className="w-[90%] max-w-[1600px] mx-auto min-h-screen">
-      <header className=" backdrop-blur-md p-4 text-black">
+      <header className="backdrop-blur-md p-4 text-black">
         <div className="container mx-auto flex justify-between items-center">
           <h1
-            className={` ${herofont.className} text-3xl font-bold text-white`}
+            className={`${herofont.className} text-3xl font-bold text-white`}
           >
             Googussy
           </h1>
-          <div className="text-md text-gray-200 md:flex gap-2 items-center hidden ">
+          <div className="text-md text-gray-200 md:flex gap-2 items-center hidden">
             <h2 className="font-semibold text-lg text-white">Room ID:</h2>
-            {roomid}
+            <span className="bg-white/10 px-3 py-1 rounded-lg font-mono text-sm">
+              {roomid}
+            </span>
           </div>
           <Sheet open={isDrawerOpen} onOpenChange={setIsDrawerOpen}>
             <SheetTrigger asChild>
@@ -216,12 +202,12 @@ export default function Page() {
               </Button>
             </SheetTrigger>
 
-            <SheetTitle className="hidden">hello</SheetTitle>
+            <SheetTitle className="hidden">Menu</SheetTitle>
             <SheetContent
               side="right"
               className="w-[300px] sm:w-[400px] bg-zinc-900 text-white"
             >
-              <div className="text-md text-gray-200 flex gap-2 items-center ">
+              <div className="text-md text-gray-200 flex gap-2 items-center">
                 <h2 className="font-semibold text-lg text-white">Room ID:</h2>
                 {roomid}
               </div>

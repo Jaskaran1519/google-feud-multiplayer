@@ -7,12 +7,16 @@ const ROUND_DURATION = GAME_CONFIG.ROUND_DURATION;
 const TOTAL_ROUNDS = GAME_CONFIG.TOTAL_ROUNDS;
 
 const roomTimers = new Map();
+// Track whether a round-end is already in progress to prevent double triggers
+const roundEndingLock = new Map();
+// Pre-fetched question data for the next round
+const prefetchedQuestions = new Map();
 
 export function extractAnswer(suggestion, question) {
   const baseQuestion = question.replace(/\.\.\.$/, '').trim().toLowerCase();
   const result = suggestion.toLowerCase().trim();
 
-  // 1. Try exact exact regex match first
+  // 1. Try exact regex match first
   const exactMatchRegex = new RegExp(`^${baseQuestion.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*`, "i");
   if (exactMatchRegex.test(result)) {
     return result.replace(exactMatchRegex, "").trim();
@@ -40,6 +44,50 @@ export function extractAnswer(suggestion, question) {
   return result;
 }
 
+/**
+ * Fetches a question + suggestions from OpenRouter + Google Autocomplete.
+ * Returns { question, suggestions, keywords } or null on failure.
+ */
+async function fetchQuestionData() {
+  let question = "";
+  let suggestions = [];
+
+  // Attempt 1: generate a question and get Google autocomplete results
+  question = await generateQuestion();
+  let rawSuggestions = await getAutocompleteSuggestions(question);
+  suggestions = [...new Set(rawSuggestions)];
+
+  // If we got very few results (< 4), try ONE more time with a different question
+  if (suggestions.length < 4) {
+    console.log(`Only got ${suggestions.length} suggestions for "${question}", retrying once...`);
+    question = await generateQuestion();
+    rawSuggestions = await getAutocompleteSuggestions(question);
+    suggestions = [...new Set(rawSuggestions)];
+  }
+
+  // Cap at 10 results
+  if (suggestions.length > 10) {
+    suggestions = suggestions.slice(0, 10);
+  }
+
+  const keywords = suggestions.map((suggestion) => extractAnswer(suggestion, question));
+
+  console.log(`Question: "${question}" → ${suggestions.length} suggestions`);
+  return { question, suggestions, keywords };
+}
+
+/**
+ * Kick off a background pre-fetch for the next question.
+ * Stores the promise in prefetchedQuestions so sendNewQuestion can await it.
+ */
+function startPrefetch(roomName) {
+  const promise = fetchQuestionData().catch((err) => {
+    console.error("Prefetch failed for room:", roomName, err);
+    return null;
+  });
+  prefetchedQuestions.set(roomName, promise);
+}
+
 export async function sendNewQuestion(roomName, io) {
   console.log("Sending new question for room:", roomName);
   try {
@@ -50,8 +98,9 @@ export async function sendNewQuestion(roomName, io) {
       return;
     }
 
-    // Clear any existing timer for this room
+    // Clear any existing timer and unlock round-ending
     clearRoomTimer(roomName);
+    roundEndingLock.delete(roomName);
 
     // Increment round or initialize
     if (!game.round) {
@@ -92,34 +141,19 @@ export async function sendNewQuestion(roomName, io) {
       playerState.lives = GAME_CONFIG.LIVES_PER_PLAYER;
     });
 
-    // Generate question and suggestions with retry logic to ensure 10 results
-    let question = "";
-    let suggestions = [];
-    let attempts = 0;
-    
-    while (suggestions.length < 10 && attempts < 4) {
-      question = await generateQuestion();
-      const rawSuggestions = await getAutocompleteSuggestions(question);
-      suggestions = [...new Set(rawSuggestions)]; // Remove duplicates
-      if (suggestions.length > 10) suggestions = suggestions.slice(0, 10);
-      attempts++;
+    // Use pre-fetched data if available, otherwise fetch on the spot
+    let questionData;
+    if (prefetchedQuestions.has(roomName)) {
+      questionData = await prefetchedQuestions.get(roomName);
+      prefetchedQuestions.delete(roomName);
     }
 
-    // Pad with fallbacks if we still didn't get 10
-    if (suggestions.length < 10) {
-      const fallbacks = [
-        "today", "now", "near me", "for free", "online", 
-        "meaning", "pdf", "wiki", "reddit", "youtube"
-      ];
-      for (const fallback of fallbacks) {
-        if (suggestions.length >= 10) break;
-        const padded = `${question.slice(0, -3)} ${fallback}`;
-        if (!suggestions.includes(padded)) suggestions.push(padded);
-      }
+    // If prefetch failed or wasn't available, fetch now
+    if (!questionData) {
+      questionData = await fetchQuestionData();
     }
 
-    // Extract keywords from suggestions
-    const keywords = suggestions.map((suggestion) => extractAnswer(suggestion, question));
+    const { question, suggestions, keywords } = questionData;
 
     // Update game state
     game.currentQuestion = {
@@ -183,6 +217,11 @@ export async function sendNewQuestion(roomName, io) {
     }, ROUND_DURATION + 2000); // Give 2 seconds of grace period for frontend lag
 
     roomTimers.set(roomName, timerId);
+
+    // Start pre-fetching next question in background (if not the last round)
+    if (game.round < GAME_CONFIG.TOTAL_ROUNDS) {
+      startPrefetch(roomName);
+    }
   } catch (error) {
     console.error("Error sending new question:", error);
     io.to(roomName).emit("gameError", {
@@ -190,6 +229,7 @@ export async function sendNewQuestion(roomName, io) {
     });
   }
 }
+
 export const handleGameCompletion = async (roomName, io) => {
   console.log(`Handling game completion for room: ${roomName}`);
   try {
@@ -201,6 +241,8 @@ export const handleGameCompletion = async (roomName, io) => {
     }
 
     clearRoomTimer(roomName);
+    roundEndingLock.delete(roomName);
+    prefetchedQuestions.delete(roomName);
 
     const finalScores = {};
     if (game.playerStates) {
@@ -209,7 +251,7 @@ export const handleGameCompletion = async (roomName, io) => {
       }
     }
 
-    // game.isActive = false;
+    game.isActive = false;
     await game.save();
 
     io.to(roomName).emit("gameOver", {
@@ -226,21 +268,32 @@ export const handleGameCompletion = async (roomName, io) => {
 
 export async function endRoundAndProceed(roomName, io, reason = "time_up") {
   try {
+    // Prevent double trigger: if a round-end is already in progress, skip
+    if (roundEndingLock.has(roomName)) {
+      console.log(`Round end already in progress for room: ${roomName}, skipping duplicate (reason: ${reason})`);
+      return;
+    }
+    roundEndingLock.set(roomName, true);
+
     let game = await Game.findOne({ roomId: roomName });
-    if (!game || !game.isActive) return;
+    if (!game || !game.isActive) {
+      roundEndingLock.delete(roomName);
+      return;
+    }
 
     console.log(`Round ended for room: ${roomName}, Reason: ${reason}`);
 
     // Clear the timer so it doesn't double trigger
     clearRoomTimer(roomName);
 
-    // ONLY reveal all options to players if they exhausted their lives
-    if (reason === "lives_exhausted") {
+    // Reveal all remaining answers for review
+    if (reason === "lives_exhausted" || reason === "time_up") {
       game.revealedOptions = game.currentQuestion.keywords;
       await game.save();
     }
+    // For "all_guessed", revealedOptions is already complete from submitAnswer
 
-    // Emit the state update. Front-end will check isReviewing to show "Time's up" or "Out of lives" round over UI
+    // Emit the state update for review phase
     io.to(roomName).emit("gameStateUpdate", {
       revealedOptions: game.revealedOptions,
       isReviewing: true,
@@ -250,6 +303,9 @@ export async function endRoundAndProceed(roomName, io, reason = "time_up") {
     // Wait 5 seconds for review before moving to next question
     setTimeout(async () => {
       try {
+        // Unlock so the next round can proceed
+        roundEndingLock.delete(roomName);
+
         let updatedGame = await Game.findOne({ roomId: roomName });
         if (!updatedGame || !updatedGame.isActive) return;
 
@@ -262,10 +318,12 @@ export async function endRoundAndProceed(roomName, io, reason = "time_up") {
         }
       } catch (error) {
         console.error("Error in next round transition:", error);
+        roundEndingLock.delete(roomName);
       }
     }, 5000);
   } catch (error) {
     console.error("Error ending round:", error);
+    roundEndingLock.delete(roomName);
   }
 }
 
