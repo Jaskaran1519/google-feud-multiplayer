@@ -16,6 +16,7 @@ import {
   Award,
   Sparkles,
   Search,
+  Loader2,
 } from "lucide-react";
 
 const DEFAULT_CONFIG = {
@@ -28,6 +29,7 @@ interface GameAreaProps {
   roomId: string;
   gameState: GameState;
   playerStats: PlayerStats;
+  isAdmin: boolean;
 }
 
 export const GameArea: React.FC<GameAreaProps> = ({
@@ -35,6 +37,7 @@ export const GameArea: React.FC<GameAreaProps> = ({
   roomId,
   gameState: initialGameState,
   playerStats: initialPlayerStats,
+  isAdmin,
 }) => {
   const [gameState, setGameState] = useState<GameState>(initialGameState);
   const [answer, setAnswer] = useState("");
@@ -49,12 +52,36 @@ export const GameArea: React.FC<GameAreaProps> = ({
   const { toast } = useToast();
   const inputRef = useRef<HTMLInputElement>(null);
 
+  // Sync with parent gameState changes (e.g. from initialRoomSync on reconnect)
+  useEffect(() => {
+    setGameState((prev) => {
+      // Only update if something meaningful changed
+      if (
+        prev.isActive !== initialGameState.isActive ||
+        prev.round !== initialGameState.round ||
+        prev.currentQuestion !== initialGameState.currentQuestion
+      ) {
+        return { ...prev, ...initialGameState };
+      }
+      return prev;
+    });
+
+    // If reconnecting to an active game, restore revealed options from parent state
+    if (initialGameState.isActive && (initialGameState as any).revealedOptions) {
+      setRevealedOptions((initialGameState as any).revealedOptions);
+    }
+  }, [initialGameState]);
+
+  // Sync with parent playerStats changes
+  useEffect(() => {
+    setPlayerStats(initialPlayerStats);
+  }, [initialPlayerStats]);
+
   // Reset timer and revealed options when a new question is received
   useEffect(() => {
     if (gameState.currentQuestion) {
       setTimeLeft(gameState.roundDuration || DEFAULT_CONFIG.ROUND_DURATION);
       setIsGameOver(false);
-      setRevealedOptions([]);
     }
   }, [gameState.currentQuestion]);
 
@@ -559,16 +586,28 @@ export const GameArea: React.FC<GameAreaProps> = ({
                     );
                   })}
                 </div>
-                <motion.button
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: 0.6 }}
-                  onClick={handleStartGame}
-                  className="mt-8 px-8 py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white text-lg font-bold rounded-2xl transition-all duration-300 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 flex items-center gap-3 mx-auto"
-                >
-                  <Play className="w-5 h-5" />
-                  Play Again
-                </motion.button>
+                {isAdmin ? (
+                  <motion.button
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.6 }}
+                    onClick={handleStartGame}
+                    className="mt-8 px-8 py-4 bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white text-lg font-bold rounded-2xl transition-all duration-300 shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 flex items-center gap-3 mx-auto"
+                  >
+                    <Play className="w-5 h-5" />
+                    Play Again
+                  </motion.button>
+                ) : (
+                  <motion.p
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: 0.6 }}
+                    className="mt-8 text-gray-400 text-sm flex items-center gap-2 justify-center"
+                  >
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Waiting for the host to start a new game...
+                  </motion.p>
+                )}
               </motion.div>
             ) : (
               <motion.div
@@ -596,13 +635,38 @@ export const GameArea: React.FC<GameAreaProps> = ({
                     Guess Google's autocomplete suggestions!
                   </p>
                 </div>
-                <button
-                  onClick={handleStartGame}
-                  className="px-8 py-4 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white text-lg font-bold rounded-2xl transition-all duration-300 shadow-lg shadow-violet-500/20 hover:shadow-violet-500/40 flex items-center gap-3"
-                >
-                  <Play className="w-5 h-5" />
-                  Start Game
-                </button>
+                {isAdmin ? (
+                  <button
+                    onClick={handleStartGame}
+                    className="px-8 py-4 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white text-lg font-bold rounded-2xl transition-all duration-300 shadow-lg shadow-violet-500/20 hover:shadow-violet-500/40 flex items-center gap-3"
+                  >
+                    <Play className="w-5 h-5" />
+                    Start Game
+                  </button>
+                ) : (
+                  <div className="flex flex-col items-center gap-2">
+                    <div className="flex gap-1">
+                      <motion.div
+                        className="w-2 h-2 rounded-full bg-violet-400"
+                        animate={{ scale: [1, 1.5, 1] }}
+                        transition={{ repeat: Infinity, duration: 1, delay: 0 }}
+                      />
+                      <motion.div
+                        className="w-2 h-2 rounded-full bg-violet-400"
+                        animate={{ scale: [1, 1.5, 1] }}
+                        transition={{ repeat: Infinity, duration: 1, delay: 0.2 }}
+                      />
+                      <motion.div
+                        className="w-2 h-2 rounded-full bg-violet-400"
+                        animate={{ scale: [1, 1.5, 1] }}
+                        transition={{ repeat: Infinity, duration: 1, delay: 0.4 }}
+                      />
+                    </div>
+                    <p className="text-gray-400 text-sm">
+                      Waiting for the host to start the game...
+                    </p>
+                  </div>
+                )}
               </motion.div>
             )}
           </motion.div>

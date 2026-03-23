@@ -35,6 +35,7 @@ export default function Page() {
     { id: number; name: string; score: number }[]
   >([]);
   const [username, setUsername] = useState<string>("");
+  const [admin, setAdmin] = useState<string | null>(null);
   const [gameState, setGameState] = useState<GameState>({
     isActive: false,
     round: 0,
@@ -46,6 +47,8 @@ export default function Page() {
     lives: 3,
     score: 0,
   });
+  // Track all players' stats for accurate scoreboard
+  const [allPlayerStats, setAllPlayerStats] = useState<Record<string, { lives: number; score: number }>>({}); 
 
   const socketRef = useRef<Socket | null>(null);
 
@@ -70,7 +73,7 @@ export default function Page() {
 
     socket.on(
       "initialRoomSync",
-      (data: { messages: Message[]; gameState: any; players: string[] }) => {
+      (data: { messages: Message[]; gameState: any; players: string[]; admin: string | null }) => {
         // Sync chat messages
         if (data.messages) {
           setChatMessages(data.messages.map((m: any) => ({
@@ -80,20 +83,34 @@ export default function Page() {
           })));
         }
 
-        // Sync game state
+        // Set admin
+        if (data.admin) {
+          setAdmin(data.admin);
+        }
+
+        // Sync players list
+        if (data.players) {
+          setPlayer(data.players.map((name, index) => ({ id: index, name, score: 0 })));
+        }
+
+        // Sync game state — full restore including active game
         if (data.gameState) {
+          const gs = data.gameState;
+
           setGameState((prevState) => ({
             ...prevState,
-            isActive: data.gameState.isActive || false,
-            round: data.gameState.round || 0,
-            totalRounds: data.gameState.totalRounds || 5,
-            currentQuestion: data.gameState.currentQuestion,
-            scores: data.gameState.scores || {},
+            isActive: gs.isActive || false,
+            round: gs.round || 0,
+            totalRounds: gs.totalRounds || 5,
+            currentQuestion: gs.currentQuestion || undefined,
+            scores: gs.scores || {},
+            revealedOptions: gs.revealedOptions || [],
           }));
 
-          const playerStatesArray = Array.isArray(data.gameState.playerStates)
-            ? data.gameState.playerStates
-            : Object.entries(data.gameState.playerStates || {});
+          // Restore player stats from the playerStates array
+          const playerStatesArray = Array.isArray(gs.playerStates)
+            ? gs.playerStates
+            : Object.entries(gs.playerStates || {});
 
           const playerState = playerStatesArray.find(
             ([name]: [string, any]) => name === currentUsername
@@ -101,10 +118,20 @@ export default function Page() {
 
           if (playerState) {
             setPlayerStats({
-              lives: playerState[1].lives || 3,
-              score: playerState[1].score || 0,
+              lives: playerState[1].lives ?? 3,
+              score: playerState[1].score ?? 0,
             });
           }
+
+          // Build allPlayerStats from the initial sync
+          const initialAllStats: Record<string, { lives: number; score: number }> = {};
+          playerStatesArray.forEach(([name, state]: [string, any]) => {
+            initialAllStats[name] = {
+              lives: state.lives ?? 3,
+              score: state.score ?? 0,
+            };
+          });
+          setAllPlayerStats(initialAllStats);
         }
       }
     );
@@ -131,6 +158,14 @@ export default function Page() {
         ...prevState,
         ...updatedGameState,
       }));
+      // If playerStates are included in the update, sync allPlayerStats
+      if (updatedGameState.playerStates && Array.isArray(updatedGameState.playerStates)) {
+        const newStats: Record<string, { lives: number; score: number }> = {};
+        updatedGameState.playerStates.forEach((ps: any) => {
+          newStats[ps.username] = { lives: ps.lives, score: ps.score };
+        });
+        setAllPlayerStats(newStats);
+      }
     });
 
     socket.on("newQuestion", (questionData: any) => {
@@ -148,6 +183,11 @@ export default function Page() {
           score: statsUpdate[currentUsername].score,
         });
       }
+      // Update all player stats for scoreboard
+      setAllPlayerStats((prev) => ({
+        ...prev,
+        ...statsUpdate,
+      }));
     });
 
     // Join room
@@ -214,7 +254,7 @@ export default function Page() {
               <h2 className="visually-hidden mt-12 mb-5 text-white font-semibold text-lg">
                 Player List
               </h2>
-              <PlayerList player={player} playerStats={playerStats} />
+              <PlayerList player={player} allPlayerStats={allPlayerStats} />
             </SheetContent>
           </Sheet>
         </div>
@@ -227,9 +267,10 @@ export default function Page() {
             roomId={roomid}
             gameState={gameState}
             playerStats={playerStats}
+            isAdmin={username === admin}
           />
           <div className="hidden lg:block">
-            <PlayerList player={player} playerStats={playerStats} />
+            <PlayerList player={player} allPlayerStats={allPlayerStats} />
           </div>
         </div>
 

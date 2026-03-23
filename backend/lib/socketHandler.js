@@ -1,13 +1,16 @@
 // socketHandler.js
 import Message from "../model/message.js";
 import Game from "../model/game.js";
+import Room from "../model/room.js";
 import { GAME_CONFIG } from "../config/config.js";
 import { sendNewQuestion, handleGameCompletion, endRoundAndProceed } from "./gameLogic.js";
 
 const SYSTEM_USER = "Jaskaran@1519123";
 
 export const initSocketHandlers = (io) => {
+  // Maps socket.id -> username
   const usernames = new Map();
+  // Maps roomName -> Set of usernames (persistent — NOT cleared on disconnect)
   const roomPlayers = new Map();
 
   io.on("connection", (socket) => {
@@ -17,6 +20,7 @@ export const initSocketHandlers = (io) => {
         socket.join(roomName);
         usernames.set(socket.id, username);
         socket.data.username = username;
+        socket.data.roomName = roomName;
 
         if (!roomPlayers.has(roomName)) {
           roomPlayers.set(roomName, new Set());
@@ -42,14 +46,57 @@ export const initSocketHandlers = (io) => {
 
           io.to(roomName).emit("message", joinMessage);
           io.to(roomName).emit("updatePlayers", Array.from(roomPlayerSet));
-
-          const messages = await Message.findOne({ roomId: roomName });
-          socket.emit("initialRoomSync", {
-            messages: messages ? messages.messages : [],
-            gameState: await Game.findOne({ roomId: roomName }),
-            players: Array.from(roomPlayerSet),
-          });
         }
+
+        // --- Always send full sync (handles both new joins and reconnects) ---
+        const messages = await Message.findOne({ roomId: roomName });
+        const game = await Game.findOne({ roomId: roomName });
+        const room = await Room.findOne({ roomName });
+
+        // Build full game state for the connecting player
+        let fullGameState = null;
+        if (game) {
+          fullGameState = {
+            isActive: game.isActive,
+            round: game.round,
+            totalRounds: game.totalRounds,
+            currentQuestion: game.currentQuestion,
+            playerStates: game.playerStates
+              ? Array.from(game.playerStates)
+              : [],
+            revealedOptions: game.revealedOptions || [],
+            roundStartTime: game.startTime,
+          };
+
+          // If the game is active and this player is not yet in playerStates, add them
+          if (game.isActive && game.playerStates && !game.playerStates.has(username)) {
+            const roomLives = room ? (room.livesPerPlayer || GAME_CONFIG.LIVES_PER_PLAYER) : GAME_CONFIG.LIVES_PER_PLAYER;
+            game.playerStates.set(username, {
+              lives: roomLives,
+              score: 0,
+              attempts: [],
+            });
+            game.markModified("playerStates");
+            await game.save();
+
+            // Update the fullGameState with the new player
+            fullGameState.playerStates = Array.from(game.playerStates);
+
+            // Broadcast updated player stats to all players
+            const statsUpdate = {};
+            for (const [uname, state] of game.playerStates.entries()) {
+              statsUpdate[uname] = { lives: state.lives, score: state.score };
+            }
+            io.to(roomName).emit("playerStatsUpdate", statsUpdate);
+          }
+        }
+
+        socket.emit("initialRoomSync", {
+          messages: messages ? messages.messages : [],
+          gameState: fullGameState,
+          players: Array.from(roomPlayerSet),
+          admin: room ? room.createdBy : null,
+        });
       } catch (error) {
         console.error("Error handling joinRoom event:", error);
         socket.emit("gameError", { message: "Error joining room" });
@@ -77,63 +124,66 @@ export const initSocketHandlers = (io) => {
       }
     });
 
-    // Leave Room Handler
+    // Leave Room Handler (explicit navigation away)
     socket.on("leaveRoom", (roomName) => {
-      const username = usernames.get(socket.id);
-      if (username && roomPlayers.has(roomName)) {
-        const roomPlayerSet = roomPlayers.get(roomName);
-        roomPlayerSet.delete(username);
-
-        const leaveMessage = {
-          player: SYSTEM_USER,
-          content: `${username} has left the room`,
-          timestamp: new Date(),
-        };
-
-        io.to(roomName).emit("message", leaveMessage);
-        io.to(roomName).emit("updatePlayers", Array.from(roomPlayerSet));
-      }
+      // Do NOT remove from roomPlayers on leave — players persist in the room
+      // Only remove socket from the socket.io room
+      socket.leave(roomName);
     });
 
-    // Disconnect Handler
+    // Disconnect Handler — do NOT remove from roomPlayers
+    // Players are persistent in the room; a disconnect is just a temporary connection loss
     socket.on("disconnect", () => {
       const username = usernames.get(socket.id);
       if (username) {
-        for (const [roomName, players] of roomPlayers.entries()) {
-          if (players.has(username)) {
-            players.delete(username);
-            io.to(roomName).emit("updatePlayers", Array.from(players));
-
-            const disconnectMessage = {
-              player: SYSTEM_USER,
-              content: `${username} has disconnected`,
-              timestamp: new Date(),
-            };
-
-            io.to(roomName).emit("message", disconnectMessage);
-          }
-        }
         usernames.delete(socket.id);
+        // We intentionally do NOT remove the user from roomPlayers.
+        // They will rejoin with the same username and get synced.
       }
     });
 
-    // Start Game Handler
+    // Start Game Handler — admin only
     socket.on("startGame", async ({ roomName }) => {
       try {
-        let game = await Game.findOne({ roomId: roomName });
+        const username = usernames.get(socket.id);
+
+        // Check admin permission
+        const room = await Room.findOne({ roomName });
+        if (!room) {
+          return socket.emit("gameError", { message: "Room not found" });
+        }
+        if (room.createdBy !== username) {
+          return socket.emit("gameError", { message: "Only the room admin can start a game" });
+        }
+
+        // Get room settings (fallback to defaults from GAME_CONFIG)
+        const roomSettings = {
+          totalRounds: room.totalRounds || GAME_CONFIG.TOTAL_ROUNDS,
+          roundDuration: (room.roundDuration || 30) * 1000, // convert seconds to ms
+          livesPerPlayer: room.livesPerPlayer || GAME_CONFIG.LIVES_PER_PLAYER,
+        };
+
+        // Check if a game is already active
+        const existingGame = await Game.findOne({ roomId: roomName });
+        if (existingGame && existingGame.isActive) {
+          return socket.emit("gameError", { message: "A game is already in progress" });
+        }
+
+        let game = existingGame;
 
         if (!game) {
           game = new Game({
             roomId: roomName,
             isActive: true,
             round: 0,
-            totalRounds: GAME_CONFIG.TOTAL_ROUNDS,
+            totalRounds: roomSettings.totalRounds,
             playerStates: new Map(),
             startTime: new Date(),
           });
         } else {
           game.isActive = true;
           game.round = 0;
+          game.totalRounds = roomSettings.totalRounds;
           game.playerStates = new Map();
           game.startTime = new Date();
         }
@@ -143,10 +193,10 @@ export const initSocketHandlers = (io) => {
         io.to(roomName).emit("gameStateUpdate", {
           isActive: true,
           round: 0,
-          totalRounds: GAME_CONFIG.TOTAL_ROUNDS,
+          totalRounds: roomSettings.totalRounds,
         });
 
-        await sendNewQuestion(roomName, io);
+        await sendNewQuestion(roomName, io, roomSettings);
       } catch (error) {
         console.error("Error in startGame:", error);
         socket.emit("gameError", { message: "Failed to start game" });
@@ -335,6 +385,7 @@ export const initSocketHandlers = (io) => {
             playerStates: game.playerStates
               ? Array.from(game.playerStates)
               : [],
+            revealedOptions: game.revealedOptions || [],
             roundStartTime: game.startTime,
           },
         });

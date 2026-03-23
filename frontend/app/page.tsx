@@ -18,6 +18,7 @@ const anton = Roboto({
 const Page = () => {
   const router = useRouter();
   const [showModal, setShowModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [roomId, setRoomId] = useState("");
   const [playerName, setPlayerName] = useState("");
   const [alert, setAlert] = useState<{
@@ -25,6 +26,13 @@ const Page = () => {
     type: "success" | "error" | "warning" | "info";
   } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+
+  // Room settings
+  const [roomSettings, setRoomSettings] = useState({
+    totalRounds: 3,
+    roundDuration: 30,
+    livesPerPlayer: 3,
+  });
 
   const ALERT_DURATION = 3000;
 
@@ -43,13 +51,18 @@ const Page = () => {
     setAlert({ message, type });
   };
 
+  const handleCreateRoomClick = () => {
+    if (!playerName) {
+      showAlertMessage("Please enter a player name");
+      return;
+    }
+    setShowSettingsModal(true);
+  };
+
   const createRoom = async () => {
     try {
-      if (!playerName) {
-        showAlertMessage("Please enter a player name");
-        return;
-      }
       setIsLoading(true);
+      setShowSettingsModal(false);
 
       console.log("Storing username:", playerName);
       localStorage.setItem("playerName", playerName);
@@ -57,7 +70,12 @@ const Page = () => {
       const response = await fetch(`${BACKEND_URL}api/rooms/create`, {
         method: "POST",
         headers: JSON_HEADERS,
-        body: JSON.stringify({ userName: playerName }),
+        body: JSON.stringify({
+          userName: playerName,
+          totalRounds: roomSettings.totalRounds,
+          roundDuration: roomSettings.roundDuration,
+          livesPerPlayer: roomSettings.livesPerPlayer,
+        }),
       });
 
       if (!response.ok) {
@@ -71,6 +89,7 @@ const Page = () => {
     } catch (error) {
       console.error("Error creating room:", error);
       showAlertMessage("Failed to create room");
+      setIsLoading(false);
     }
   };
 
@@ -152,7 +171,7 @@ const Page = () => {
         <div className="flex flex-col space-y-6 justify-center items-center">
           <button
             className={`${buttonStyles} relative`}
-            onClick={createRoom}
+            onClick={handleCreateRoomClick}
             disabled={isLoading}
           >
             {isLoading ? (
@@ -216,6 +235,124 @@ const Page = () => {
                   </button>
                 </div>
               </form>
+            </div>
+          </div>
+        )}
+
+        {/* Room Settings Modal */}
+        {showSettingsModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50">
+            <div className="bg-gradient-to-br from-neutral-900 to-neutral-800 border border-white/10 p-8 rounded-2xl shadow-2xl w-[90%] max-w-lg transform transition-all">
+              {/* Header */}
+              <div className="flex items-center gap-3 mb-8">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center">
+                  <span className="text-xl">⚙️</span>
+                </div>
+                <div>
+                  <h2 className="text-2xl font-bold text-white">Room Settings</h2>
+                  <p className="text-sm text-gray-400">Configure your game before starting</p>
+                </div>
+              </div>
+
+              {/* Settings Controls */}
+              <div className="space-y-6">
+                {/* Number of Rounds */}
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🎯</span>
+                      <span className="text-white font-medium">Number of Rounds</span>
+                    </div>
+                    <span className="text-violet-400 font-bold text-xl bg-violet-500/10 px-3 py-1 rounded-lg">
+                      {roomSettings.totalRounds}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="10"
+                    value={roomSettings.totalRounds}
+                    onChange={(e) => setRoomSettings(prev => ({ ...prev, totalRounds: Number(e.target.value) }))}
+                    className="w-full h-2 bg-white/10 rounded-full appearance-none cursor-pointer accent-violet-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-violet-500 [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-violet-500/30 [&::-webkit-slider-thumb]:cursor-pointer"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>1</span>
+                    <span>5</span>
+                    <span>10</span>
+                  </div>
+                </div>
+
+                {/* Time Per Round */}
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">⏱️</span>
+                      <span className="text-white font-medium">Time Per Round</span>
+                    </div>
+                    <span className="text-amber-400 font-bold text-xl bg-amber-500/10 px-3 py-1 rounded-lg">
+                      {roomSettings.roundDuration}s
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="15"
+                    max="120"
+                    step="5"
+                    value={roomSettings.roundDuration}
+                    onChange={(e) => setRoomSettings(prev => ({ ...prev, roundDuration: Number(e.target.value) }))}
+                    className="w-full h-2 bg-white/10 rounded-full appearance-none cursor-pointer accent-amber-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-amber-500 [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-amber-500/30 [&::-webkit-slider-thumb]:cursor-pointer"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>15s</span>
+                    <span>60s</span>
+                    <span>120s</span>
+                  </div>
+                </div>
+
+                {/* Lives Per Round */}
+                <div className="bg-white/5 border border-white/10 rounded-xl p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">❤️</span>
+                      <span className="text-white font-medium">Lives Per Round</span>
+                    </div>
+                    <span className="text-red-400 font-bold text-xl bg-red-500/10 px-3 py-1 rounded-lg">
+                      {roomSettings.livesPerPlayer}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1"
+                    max="5"
+                    value={roomSettings.livesPerPlayer}
+                    onChange={(e) => setRoomSettings(prev => ({ ...prev, livesPerPlayer: Number(e.target.value) }))}
+                    className="w-full h-2 bg-white/10 rounded-full appearance-none cursor-pointer accent-red-500 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-5 [&::-webkit-slider-thumb]:h-5 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-red-500 [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:shadow-red-500/30 [&::-webkit-slider-thumb]:cursor-pointer"
+                  />
+                  <div className="flex justify-between text-xs text-gray-500 mt-1">
+                    <span>1</span>
+                    <span>3</span>
+                    <span>5</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex justify-end gap-3 mt-8">
+                <button
+                  type="button"
+                  onClick={() => setShowSettingsModal(false)}
+                  className="px-6 py-3 text-gray-300 font-medium bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all duration-200"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={createRoom}
+                  className="px-6 py-3 bg-gradient-to-r from-violet-500 to-purple-600 hover:from-violet-600 hover:to-purple-700 text-white font-bold rounded-xl shadow-lg shadow-violet-500/20 hover:shadow-violet-500/40 transition-all duration-200 flex items-center gap-2"
+                >
+                  🚀 Create Room
+                </button>
+              </div>
             </div>
           </div>
         )}

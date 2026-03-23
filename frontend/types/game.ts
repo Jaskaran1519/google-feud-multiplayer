@@ -18,6 +18,7 @@ export interface GameState {
   livesPerPlayer?: number;
   isReviewing?: boolean;
   reviewReason?: string;
+  revealedOptions?: string[];
 }
 
 export interface PlayerStats {

@@ -3,14 +3,13 @@ import { generateQuestion } from "../services/openRouterService.js";
 import { getAutocompleteSuggestions } from "../services/googleSearchService.js";
 import { GAME_CONFIG } from "../config/config.js";
 
-const ROUND_DURATION = GAME_CONFIG.ROUND_DURATION;
-const TOTAL_ROUNDS = GAME_CONFIG.TOTAL_ROUNDS;
-
 const roomTimers = new Map();
 // Track whether a round-end is already in progress to prevent double triggers
 const roundEndingLock = new Map();
 // Pre-fetched question data for the next round
 const prefetchedQuestions = new Map();
+// Cache room settings so they persist through round transitions
+const roomSettingsCache = new Map();
 
 export function extractAnswer(suggestion, question) {
   const baseQuestion = question.replace(/\.\.\.$/, '').trim().toLowerCase();
@@ -88,9 +87,19 @@ function startPrefetch(roomName) {
   prefetchedQuestions.set(roomName, promise);
 }
 
-export async function sendNewQuestion(roomName, io) {
+export async function sendNewQuestion(roomName, io, roomSettings = null) {
   console.log("Sending new question for room:", roomName);
   try {
+    // Cache or retrieve room settings
+    if (roomSettings) {
+      roomSettingsCache.set(roomName, roomSettings);
+    }
+    const settings = roomSettingsCache.get(roomName) || {
+      totalRounds: GAME_CONFIG.TOTAL_ROUNDS,
+      roundDuration: GAME_CONFIG.ROUND_DURATION,
+      livesPerPlayer: GAME_CONFIG.LIVES_PER_PLAYER,
+    };
+
     let game = await Game.findOne({ roomId: roomName });
 
     if (!game) {
@@ -110,7 +119,7 @@ export async function sendNewQuestion(roomName, io) {
     }
 
     // Check if game should end
-    if (game.round > GAME_CONFIG.TOTAL_ROUNDS) {
+    if (game.round > settings.totalRounds) {
       await handleGameCompletion(roomName, io);
       return;
     }
@@ -128,7 +137,7 @@ export async function sendNewQuestion(roomName, io) {
       playersInRoom.forEach((username) => {
         if (username) {
           game.playerStates.set(username, {
-            lives: GAME_CONFIG.LIVES_PER_PLAYER,
+            lives: settings.livesPerPlayer,
             score: 0,
             attempts: [],
           });
@@ -138,7 +147,7 @@ export async function sendNewQuestion(roomName, io) {
 
     // Ensure all players have full lives at the start of each round
     game.playerStates.forEach((playerState) => {
-      playerState.lives = GAME_CONFIG.LIVES_PER_PLAYER;
+      playerState.lives = settings.livesPerPlayer;
     });
 
     // Use pre-fetched data if available, otherwise fetch on the spot
@@ -171,9 +180,9 @@ export async function sendNewQuestion(roomName, io) {
     // Emit comprehensive game state update
     io.to(roomName).emit("gameStateUpdate", {
       round: game.round,
-      totalRounds: GAME_CONFIG.TOTAL_ROUNDS,
-      roundDuration: GAME_CONFIG.ROUND_DURATION / 1000,
-      livesPerPlayer: GAME_CONFIG.LIVES_PER_PLAYER,
+      totalRounds: settings.totalRounds,
+      roundDuration: settings.roundDuration / 1000,
+      livesPerPlayer: settings.livesPerPlayer,
       isActive: true,
       currentQuestion: {
         question,
@@ -205,21 +214,21 @@ export async function sendNewQuestion(roomName, io) {
       suggestions,
       keywords,
       round: game.round,
-      totalRounds: GAME_CONFIG.TOTAL_ROUNDS,
-      roundDuration: GAME_CONFIG.ROUND_DURATION / 1000,
-      livesPerPlayer: GAME_CONFIG.LIVES_PER_PLAYER,
+      totalRounds: settings.totalRounds,
+      roundDuration: settings.roundDuration / 1000,
+      livesPerPlayer: settings.livesPerPlayer,
       isReviewing: false,
       reviewReason: null,
     });
 
     const timerId = setTimeout(async () => {
       await endRoundAndProceed(roomName, io, "time_up");
-    }, ROUND_DURATION + 2000); // Give 2 seconds of grace period for frontend lag
+    }, settings.roundDuration + 2000); // Give 2 seconds of grace period for frontend lag
 
     roomTimers.set(roomName, timerId);
 
     // Start pre-fetching next question in background (if not the last round)
-    if (game.round < GAME_CONFIG.TOTAL_ROUNDS) {
+    if (game.round < settings.totalRounds) {
       startPrefetch(roomName);
     }
   } catch (error) {
@@ -275,6 +284,13 @@ export async function endRoundAndProceed(roomName, io, reason = "time_up") {
     }
     roundEndingLock.set(roomName, true);
 
+    // Retrieve cached room settings
+    const settings = roomSettingsCache.get(roomName) || {
+      totalRounds: GAME_CONFIG.TOTAL_ROUNDS,
+      roundDuration: GAME_CONFIG.ROUND_DURATION,
+      livesPerPlayer: GAME_CONFIG.LIVES_PER_PLAYER,
+    };
+
     let game = await Game.findOne({ roomId: roomName });
     if (!game || !game.isActive) {
       roundEndingLock.delete(roomName);
@@ -309,7 +325,7 @@ export async function endRoundAndProceed(roomName, io, reason = "time_up") {
         let updatedGame = await Game.findOne({ roomId: roomName });
         if (!updatedGame || !updatedGame.isActive) return;
 
-        if (updatedGame.round >= GAME_CONFIG.TOTAL_ROUNDS) {
+        if (updatedGame.round >= settings.totalRounds) {
           console.log("Reached total rounds, calling game completion");
           await handleGameCompletion(roomName, io);
         } else {

@@ -16,7 +16,7 @@ const generateRoomName = () => {
 
 // make a room
 export const makeRoom = async (req, res) => {
-  const { userName } = req.body;
+  const { userName, totalRounds, roundDuration, livesPerPlayer } = req.body;
 
   if (!userName) {
     return res
@@ -34,7 +34,14 @@ export const makeRoom = async (req, res) => {
       roomExists = await Room.findOne({ roomName });
     } while (roomExists);
 
-    const room = new Room({ roomName, participants: [userName] }); // Add userName to participants
+    const room = new Room({
+      roomName,
+      participants: [userName],
+      createdBy: userName,
+      totalRounds: totalRounds || 3,
+      roundDuration: roundDuration || 30,
+      livesPerPlayer: livesPerPlayer || 3,
+    });
     await room.save();
 
     res.status(201).json({ roomName });
